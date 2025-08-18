@@ -1533,211 +1533,516 @@ elif page == "Options Strategy Builder":
 # =============================
 elif page == "Weekly Watchlist":
     st.header("📊 Advanced Weekly Watchlist Scanner")
-    st.caption("Real‑time(ish) momentum & health scan. Uses 1‑minute data when available; educational only.")
-
-    # --- Controls
-    c1, c2, c3 = st.columns([1.5,1,1])
-    with c1:
-        universe = st.selectbox(
-            "Scan Universe",
-            ["Curated (ETFs + Mega‑caps)", "Tech Leaders", "Growth Focus", "Custom"],
-            help="Choose a group to scan or provide your own list."
+    st.caption("Discover high-potential stocks and ETFs with comprehensive analysis and customizable filters")
+    
+    # Main screen filters and controls
+    st.subheader("🔧 Scanner Configuration")
+    
+    # Filter controls in columns
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        st.markdown("**📋 Watchlist Selection**")
+        watchlist_type = st.selectbox(
+            "Watchlist Type",
+            ["Curated List", "Custom Tickers", "Sector ETFs", "Market Leaders"],
+            help="**Curated List**: Hand-picked mix of major stocks and ETFs\n**Custom Tickers**: Add your own tickers\n**Sector ETFs**: Focus on sector-specific ETFs\n**Market Leaders**: Top market cap companies"
         )
-    with c2:
-        scan_type = st.selectbox(
-            "Scan Type",
-            ["Momentum (today)", "Momentum (5d)", "Volume Spike", "RSI Extremes", "Breakout Check"],
-            help="What to look for in today's action."
+        
+        time_period = st.selectbox(
+            "Analysis Period",
+            ["5d", "1wk", "2wk", "1mo"],
+            index=0,
+            help="**5d**: Short-term momentum (1 week)\n**1wk**: Weekly momentum\n**2wk**: Bi-weekly momentum\n**1mo**: Monthly momentum"
         )
-    with c3:
-        min_mcap = st.selectbox(
-            "Min Market Cap",
-            ["Any","$2B+","$10B+","$50B+"],
-            index=2
+    
+    with col2:
+        st.markdown("**📊 Analysis Options**")
+        use_health = st.checkbox(
+            "Include Health Score", 
+            value=True, 
+            help="**Health Score**: Combines momentum (25%), profitability (25%), growth (25%), and debt metrics (25%). Higher scores indicate stronger fundamentals."
         )
+        
+        min_market_cap = st.selectbox(
+            "Minimum Market Cap",
+            ["Any", "Micro ($300M+)", "Small ($2B+)", "Mid ($10B+)", "Large ($50B+)"],
+            index=2,
+            help="**Market Cap Filter**:\n• Micro: $300M+ (higher risk/reward)\n• Small: $2B+ (growth potential)\n• Mid: $10B+ (balanced)\n• Large: $50B+ (stability)"
+        )
+    
+    with col3:
+        st.markdown("**📈 Additional Filters**")
+        min_momentum = st.slider(
+            "Minimum Momentum (%)",
+            min_value=-50.0,
+            max_value=50.0,
+            value=-20.0,
+            step=5.0,
+            help="Filter stocks by minimum momentum performance. Negative values include declining stocks."
+        )
+        
+        min_health_score = st.slider(
+            "Minimum Health Score",
+            min_value=0.0,
+            max_value=100.0,
+            value=0.0,
+            step=5.0,
+            help="Filter stocks by minimum health score. Higher values show stronger fundamentals."
+        )
+    
+    # Custom tickers input (full width when selected)
+    if watchlist_type == "Custom Tickers":
+        st.markdown("**📝 Custom Ticker List**")
+        custom_tickers = st.text_area(
+            "Enter Tickers (one per line)",
+            value="AAPL\nMSFT\nGOOGL\nAMZN\nNVDA\nTSLA\nMETA\nNFLX\nADBE\nCRM",
+            help="**Instructions**:\n• Enter one ticker per line\n• Use uppercase (AAPL, not aapl)\n• Include major stocks and ETFs\n• Separate with new lines\n\n**Examples**:\nAAPL\nMSFT\nGOOGL\nSPY\nQQQ\nIWM"
+        )
+        custom_ticker_list = [t.strip().upper() for t in custom_tickers.split('\n') if t.strip()]
+    else:
+        custom_ticker_list = []
+    
+    # Watchlist descriptions
+    with st.expander("📚 Watchlist Descriptions & Use Cases", expanded=False):
+        st.markdown("""
+        **🎯 Curated List**: 
+        - **Best for**: General market analysis and diversified exposure
+        - **Includes**: Major ETFs (SPY, QQQ, DIA), sector ETFs (XLF, XLV, XLE), and top stocks (AAPL, MSFT, NVDA)
+        - **Use case**: Daily market overview and broad market sentiment
+        
+        **📝 Custom Tickers**: 
+        - **Best for**: Focused analysis on specific stocks or sectors
+        - **Includes**: Any stocks/ETFs you specify
+        - **Use case**: Tracking specific companies, sectors, or personal watchlists
+        
+        **🏭 Sector ETFs**: 
+        - **Best for**: Sector rotation analysis and sector-specific opportunities
+        - **Includes**: Technology (XLK), Financials (XLF), Healthcare (XLV), Energy (XLE), and ARK funds
+        - **Use case**: Identifying leading sectors and sector rotation strategies
+        
+        **👑 Market Leaders**: 
+        - **Best for**: Large-cap stability and blue-chip analysis
+        - **Includes**: Top 30 companies by market cap (AAPL, MSFT, GOOGL, AMZN, etc.)
+        - **Use case**: Conservative investing and large-cap momentum analysis
+        """)
+    
+    # Analysis period descriptions
+    with st.expander("⏰ Analysis Periods Explained", expanded=False):
+        st.markdown("""
+        **📅 5 Days (1 Week)**:
+        - **Best for**: Short-term momentum and swing trading
+        - **Shows**: Recent price action and immediate momentum
+        - **Use case**: Quick market sentiment and short-term opportunities
+        
+        **📅 1 Week**:
+        - **Best for**: Weekly momentum analysis
+        - **Shows**: Weekly performance trends
+        - **Use case**: Weekly trading strategies and momentum confirmation
+        
+        **📅 2 Weeks**:
+        - **Best for**: Medium-term momentum analysis
+        - **Shows**: Bi-weekly trends and momentum building
+        - **Use case**: Medium-term position sizing and trend confirmation
+        
+        **📅 1 Month**:
+        - **Best for**: Monthly trend analysis and position building
+        - **Shows**: Monthly performance and longer-term momentum
+        - **Use case**: Monthly portfolio rebalancing and trend analysis
+        """)
 
-    # Custom tickers
-    custom_list = []
-    if universe == "Custom":
-        custom_text = st.text_area("Tickers (one per line)", value="AAPL
-MSFT
-NVDA
-SPY
-QQQ")
-        custom_list = [t.strip().upper() for t in custom_text.splitlines() if t.strip()]
+    # Define watchlists
+    curated_list = ["SPY", "QQQ", "DIA", "IWM", "XLF", "XLV", "XLE", "XLK", "SMH", "ARKK",
+                    "AAPL", "MSFT", "NVDA", "AMZN", "META", "TSLA", "GOOGL", "JPM", "XOM", "UNH",
+                    "V", "PG", "HD", "MA", "DIS", "JNJ", "BRK-B", "NFLX", "ADBE", "CRM"]
+    
+    sector_etfs = ["XLK", "XLF", "XLV", "XLE", "XLI", "XLP", "XLU", "XLB", "XLRE", "XLC",
+                   "SMH", "ARKK", "ARKG", "ARKF", "ARKW", "ARKQ", "ARKX", "ARKO"]
+    
+    market_leaders = ["AAPL", "MSFT", "GOOGL", "AMZN", "NVDA", "META", "TSLA", "BRK-B", 
+                     "UNH", "JNJ", "JPM", "V", "PG", "HD", "MA", "DIS", "XOM", "PFE", 
+                     "ABBV", "KO", "PEP", "TMO", "AVGO", "COST", "MRK", "WMT", "BAC", 
+                     "LLY", "ABT", "CVX"]
+    
+    # Select ticker list based on user choice
+    if watchlist_type == "Curated List":
+        ticker_list = curated_list
+    elif watchlist_type == "Custom Tickers":
+        ticker_list = custom_ticker_list
+    elif watchlist_type == "Sector ETFs":
+        ticker_list = sector_etfs
+    else:  # Market Leaders
+        ticker_list = market_leaders
 
-    # Universe definitions
-    universes = {
-        "Curated (ETFs + Mega‑caps)": ["SPY","QQQ","DIA","IWM","SMH","XLK","XLF","XLV","XLE",
-                                       "AAPL","MSFT","NVDA","AMZN","META","TSLA","GOOGL","BRK-B"],
-        "Tech Leaders": ["AAPL","MSFT","NVDA","AMZN","GOOGL","META","TSLA","AVGO","AMD","NFLX","ADBE","CRM"],
-        "Growth Focus": ["NVDA","TSLA","META","SHOP","CRWD","PLTR","SNOW","ROKU","SQ","ZM","COIN"],
-        "Custom": custom_list
-    }
-    tickers = [t for t in universes[universe] if t]
-
-    # Market‑cap filter helper (uses yfinance info; fallback allows all)
-    import yfinance as yf
-    def _passes_mcap(t):
+    @st.cache_data(ttl=600)
+    def _ww_fetch_fundamentals(ticker: str) -> dict:
+        """Fetch fundamental data with enhanced error handling"""
+        out = {"market_cap": np.nan, "profitMargins": np.nan, "returnOnEquity": np.nan,
+               "revenueGrowth": np.nan, "debtToEquity": np.nan, "beta": np.nan, "volume": np.nan}
         try:
-            info = yf.Ticker(t).fast_info   # faster than .info
-            mc = getattr(info, "market_cap", None)
-        except Exception:
-            mc = None
-        thr = {"Any":0, "$2B+":2_000_000_000, "$10B+":10_000_000_000, "$50B+":50_000_000_000}[min_mcap]
-        return True if (mc is None or mc >= thr) else False
+            tk = yf.Ticker(ticker.upper().strip())
+            
+            # Try fast_info first
+            fi = getattr(tk, "fast_info", None)
+            if fi and getattr(fi, "market_cap", None) is not None:
+                out["market_cap"] = float(fi.market_cap)
+            if fi and getattr(fi, "volume", None) is not None:
+                out["volume"] = float(fi.volume)
+            
+            # Get detailed info
+            try:
+                info = tk.get_info()
+                for k in ["profitMargins", "returnOnEquity", "revenueGrowth", "debtToEquity", "marketCap", "beta"]:
+                    v = info.get(k)
+                    if v is not None:
+                        if k == "marketCap" and np.isnan(out["market_cap"]):
+                            out["market_cap"] = float(v)
+                        elif k in out:
+                            out[k] = float(v)
+            except Exception:
+                pass
+                
+        except Exception as e:
+            pass  # Silently handle errors for individual tickers
+        return out
 
-    # Real‑time helpers
-    import numpy as np
-    @st.cache_data(ttl=45)
-    def _intraday(t):
+    def _bucket(mc: float) -> str:
+        """Categorize stocks by market cap"""
+        if not isinstance(mc, (int, float)) or np.isnan(mc):
+            return "Unknown"
+        if mc >= 200e9: return "Mega (≥$200B)"
+        if mc >= 50e9:  return "Large ($50–200B)"
+        if mc >= 10e9:  return "Mid ($10–50B)"
+        if mc >= 2e9:   return "Small ($2–10B)"
+        if mc >= 3e8:   return "Micro ($0.3–2B)"
+        return "Nano (<$0.3B)"
+
+    def _get_market_cap_filter():
+        """Get market cap filter value"""
+        if min_market_cap == "Any": return 0
+        elif min_market_cap == "Micro ($300M+)": return 3e8
+        elif min_market_cap == "Small ($2B+)": return 2e9
+        elif min_market_cap == "Mid ($10B+)": return 10e9
+        elif min_market_cap == "Large ($50B+)": return 50e9
+        return 0
+
+    # Progress bar for data fetching
+    progress_bar = st.progress(0)
+    status_text = st.empty()
+    
+    rows = []
+    total_tickers = len(ticker_list)
+    
+    for i, t in enumerate(ticker_list):
+        status_text.text(f"Analyzing {t}... ({i+1}/{total_tickers})")
+        progress_bar.progress((i + 1) / total_tickers)
+        
         try:
-            df = yf.Ticker(t).history(period="1d", interval="1m", auto_adjust=False)
-            if df is not None and not df.empty:
-                df.index = pd.to_datetime(df.index)
-                return df
-        except Exception:
-            pass
-        return pd.DataFrame()
-
-    @st.cache_data(ttl=60)
-    def _last_price(t):
-        try:
-            fi = getattr(yf.Ticker(t), "fast_info", None)
-            if fi and getattr(fi, "last_price", None) is not None:
-                return float(fi.last_price)
-            intr = _intraday(t)
-            if not intr.empty:
-                return float(intr["Close"].iloc[-1])
-        except Exception:
-            pass
-        return float("nan")
-
-    st.markdown("---")
-    r1, r2, r3 = st.columns([1,1,2])
-    with r1:
-        run = st.button("▶ Run Weekly Scan", type="primary")
-    with r2:
-        refresh = st.button("🔄 Refresh now")
-    with r3:
-        st.write(f"Last updated: **{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}**")
-
-    if run or refresh:
-        with st.spinner("Scanning..."):
-            rows = []
-            for t in tickers:
-                if not _passes_mcap(t):
-                    continue
-                try:
-                    intr = _intraday(t)
-                    hist5d = fetch_price_history(t, period="5d", interval="1d")
-
-                    price_now = _last_price(t)
-                    if np.isnan(price_now):
-                        # fallback to last close
-                        if not hist5d.empty:
-                            price_now = float(hist5d["Close"].iloc[-1])
-                        else:
-                            continue
-
-                    # Today momentum (vs open)
-                    if not intr.empty:
-                        today_open = float(intr["Open"].iloc[0])
-                        mom_today = (price_now / today_open - 1.0) if today_open else np.nan
-                        vol_today = float(intr["Volume"].sum())
-                        vol_avg5 = float(hist5d["Volume"].tail(5).mean()) if not hist5d.empty else np.nan
-                        vol_ratio = (vol_today / vol_avg5) if (vol_avg5 and vol_avg5==vol_avg5 and vol_avg5>0) else np.nan
-                    else:
-                        mom_today = np.nan
-                        vol_ratio = np.nan
-
-                    # 5d momentum
-                    if not hist5d.empty and len(hist5d) >= 2:
-                        mom_5d = float(hist5d["Close"].iloc[-1] / hist5d["Close"].iloc[0] - 1.0)
-                    else:
-                        mom_5d = np.nan
-
-                    # RSI (from 1m or 1d)
-                    px = intr["Close"] if not intr.empty else (hist5d["Close"] if not hist5d.empty else pd.Series(dtype=float))
-                    rsi = float(calculate_rsi(px, 14).dropna().iloc[-1]) if not px.empty else np.nan
-
-                    # Simple breakout check: price above 20/50‑SMA (daily)
-                    ma20 = ma50 = np.nan
-                    if not hist5d.empty:
-                        # extend to 60d to compute properly
-                        hist60 = fetch_price_history(t, period="3mo", interval="1d")
-                        if not hist60.empty:
-                            ma20 = float(hist60["Close"].rolling(20).mean().iloc[-1])
-                            ma50 = float(hist60["Close"].rolling(50).mean().iloc[-1])
-
-                    cond = {
-                        "Momentum (today)": mom_today,
-                        "Momentum (5d)": mom_5d,
-                        "Volume Spike": vol_ratio,
-                        "RSI Extremes": rsi,
-                        "Breakout Check": (1.0 if (price_now>ma20 and price_now>ma50 and ma20==ma20 and ma50==ma50) else 0.0),
-                    }
-                    score = cond.get(scan_type, np.nan)
-
-                    rows.append({
-                        "Ticker": t,
-                        "Price": price_now,
-                        "Today %": mom_today,
-                        "5d %": mom_5d,
-                        "Vol Ratio": vol_ratio,
-                        "RSI": rsi,
-                        "Above 20/50": "Yes" if (price_now>ma20 and price_now>ma50 and ma20==ma20 and ma50==ma50) else "No",
-                        "Score": score,
-                    })
-                except Exception:
-                    continue
-
-            if not rows:
-                st.warning("No results. Try a different universe or loosen filters.")
+            # Fetch price history
+            h = fetch_price_history(t, period=time_period, interval="1d")
+            if h.empty or len(h) < 2:
+                continue
+                
+            # Calculate momentum
+            mom_period = (h["Close"].iloc[-1] / h["Close"].iloc[0]) - 1
+            
+            # Fetch fundamentals
+            f = _ww_fetch_fundamentals(t)
+            mcap = f.get("market_cap", np.nan)
+            pm = f.get("profitMargins", np.nan)
+            roe = f.get("returnOnEquity", np.nan)
+            rg = f.get("revenueGrowth", np.nan)
+            de = f.get("debtToEquity", np.nan)
+            beta = f.get("beta", np.nan)
+            volume = f.get("volume", np.nan)
+            
+            # Apply market cap filter
+            if mcap < _get_market_cap_filter():
+                continue
+            
+            # Apply momentum filter
+            if mom_period < min_momentum / 100:
+                continue
+            
+            # Calculate health score
+            score = np.nan
+            if use_health:
+                comps, weights = [], []
+                if not np.isnan(mom_period): comps.append(mom_period); weights.append(0.25)
+                if not np.isnan(pm): comps.append(pm); weights.append(0.25)
+                if not np.isnan(roe): comps.append(roe); weights.append(0.25)
+                if not np.isnan(rg): comps.append(rg); weights.append(0.25)
+                if weights:
+                    base_score = sum(c*w for c, w in zip(comps, weights))
+                    penalty = (min(max(de, 0.0), 5.0) * 0.10) if not np.isnan(de) else 0.0
+                    score = 100.0*(base_score - penalty)
+            
+            # Apply health score filter
+            if use_health and not np.isnan(score) and score < min_health_score:
+                continue
+            
+            # Get ticker description
+            description = ticker_descriptions.get(t, 'N/A')
+            
+            rows.append({
+                "Ticker": t,
+                "Description": description,
+                f"{time_period} %": mom_period,
+                "Market Cap": mcap,
+                "Cap Bucket": _bucket(mcap),
+                "Profit Margin": pm,
+                "ROE": roe,
+                "Revenue Growth": rg,
+                "Debt/Equity": de,
+                "Beta": beta,
+                "Volume": volume,
+                "Health Score": score,
+            })
+            
+        except Exception as e:
+            pass  # Silently handle errors for individual tickers
+            continue
+    
+    # Clear progress indicators
+    progress_bar.empty()
+    status_text.empty()
+    
+    # Create and display results
+    if not rows:
+        st.warning("No stocks found matching your criteria. Try adjusting your filters.")
+    else:
+        dfw = pd.DataFrame(rows)
+        
+        # Sorting options
+        col1, col2 = st.columns([1, 2])
+        with col1:
+            sort_by = st.selectbox(
+                "Sort by",
+                ["Health Score", f"{time_period} %", "Market Cap", "ROE", "Revenue Growth"],
+                index=0 if use_health else 1
+            )
+        with col2:
+            sort_ascending = st.checkbox("Sort ascending", value=False)
+        
+        # Sort dataframe
+        sort_col = sort_by.replace(" ", "") if sort_by != "Health Score" else "Health Score"
+        dfw = dfw.sort_values(sort_col, ascending=sort_ascending).reset_index(drop=True)
+        
+        # Add external links
+        dfw["Yahoo"] = dfw["Ticker"].apply(lambda x: f"https://finance.yahoo.com/quote/{x}")
+        dfw["Finviz"] = dfw["Ticker"].apply(lambda x: f"https://finviz.com/quote.ashx?t={x}")
+        dfw["Chart"] = dfw["Ticker"].apply(lambda x: f"https://www.tradingview.com/symbols/{x}")
+        
+        # Display results
+        st.subheader(f"📈 Watchlist Results ({len(dfw)} stocks)")
+        
+        # Results summary with descriptions
+        with st.expander("📊 Results Summary & Metrics Explained", expanded=True):
+            col1, col2, col3, col4 = st.columns(4)
+            with col1:
+                avg_momentum = dfw[f"{time_period} %"].mean()
+                st.metric("Avg Momentum", f"{avg_momentum:.2f}%")
+                st.caption("Average momentum across all stocks")
+            with col2:
+                avg_health = dfw["Health Score"].mean()
+                st.metric("Avg Health Score", f"{avg_health:.1f}")
+                st.caption("Average fundamental health score")
+            with col3:
+                top_performers = len(dfw[dfw[f"{time_period} %"] > 0])
+                st.metric("Positive Momentum", f"{top_performers}/{len(dfw)}")
+                st.caption("Stocks with positive momentum")
+            with col4:
+                high_health = len(dfw[dfw["Health Score"] > 50])
+                st.metric("High Health Score", f"{high_health}/{len(dfw)}")
+                st.caption("Stocks with strong fundamentals")
+            
+            # Additional insights
+            st.markdown("**💡 Key Insights:**")
+            if avg_momentum > 0:
+                st.info(f"✅ **Positive Market Sentiment**: Average momentum is {avg_momentum:.2f}%, indicating overall positive market sentiment")
             else:
-                df = pd.DataFrame(rows)
-
-                # Rank per scan type
-                if scan_type in ["Momentum (today)","Momentum (5d)"]:
-                    df = df.sort_values("Score", ascending=False)
-                elif scan_type == "Volume Spike":
-                    df = df.sort_values("Vol Ratio", ascending=False)
-                elif scan_type == "RSI Extremes":
-                    df["Score"] = (50 - (df["RSI"] - 50).abs())
-                    df = df.sort_values("Score")
-                elif scan_type == "Breakout Check":
-                    df = df.sort_values(["Above 20/50","5d %"], ascending=[False, False])
-
-                st.subheader(f"Results – {len(df)} tickers")
-                st.dataframe(
-                    df.style.format({
-                        "Price":"{:.2f}",
-                        "Today %":"{:.2%}",
-                        "5d %":"{:.2%}",
-                        "Vol Ratio":"{:.2f}",
-                        "RSI":"{:.1f}"
-                    }),
-                    use_container_width=True,
-                    hide_index=True
-                )
-
-                # Quick chart
-                pick = st.selectbox("Quick chart", df["Ticker"].tolist())
-                hist = fetch_price_history(pick, period="3mo", interval="1d")
-                if not hist.empty:
-                    fig = go.Figure()
-                    fig.add_trace(go.Candlestick(x=hist.index, open=hist["Open"], high=hist["High"], low=hist["Low"], close=hist["Close"], name=pick))
-                    fig.update_layout(height=420, title=f"{pick} – 3mo daily")
-                    st.plotly_chart(fig, use_container_width=True)
-
-                # Export
+                st.warning(f"⚠️ **Market Weakness**: Average momentum is {avg_momentum:.2f}%, indicating market weakness")
+            
+            if avg_health > 50:
+                st.success(f"🏥 **Strong Fundamentals**: Average health score is {avg_health:.1f}, indicating strong fundamental quality")
+            else:
+                st.info(f"📊 **Mixed Fundamentals**: Average health score is {avg_health:.1f}, review individual stocks carefully")
+        
+        # Main dataframe with descriptions
+        st.markdown("**📋 Detailed Stock Analysis**")
+        st.info("💡 **How to read this table**:\n• **Momentum %**: Price change over the selected period\n• **Health Score**: Combined fundamental strength (0-100)\n• **Market Cap**: Company size in dollars\n• **Profit Margin**: Net income as % of revenue\n• **ROE**: Return on equity (profitability)\n• **Revenue Growth**: Year-over-year growth\n• **Debt/Equity**: Financial leverage (lower is better)\n• **Beta**: Volatility vs market (1.0 = market average)")
+        
+        st.dataframe(
+            dfw,
+            use_container_width=True,
+            hide_index=True,
+            column_config={
+                "Ticker": st.column_config.TextColumn("Ticker", width="small", help="Stock symbol"),
+                "Description": st.column_config.TextColumn("Description", width="large", help="Brief company description"),
+                f"{time_period} %": st.column_config.NumberColumn(f"{time_period} %", format="%.2f%%", help="Price change over selected period"),
+                "Market Cap": st.column_config.NumberColumn("Market Cap", format="%.0f", help="Total company value in dollars"),
+                "Cap Bucket": st.column_config.TextColumn("Cap Bucket", width="medium", help="Market cap category"),
+                "Profit Margin": st.column_config.NumberColumn("Profit Margin", format="%.2f%%", help="Net profit as % of revenue"),
+                "ROE": st.column_config.NumberColumn("ROE", format="%.2f%%", help="Return on equity - profitability measure"),
+                "Revenue Growth": st.column_config.NumberColumn("Revenue Growth", format="%.2f%%", help="Year-over-year revenue growth"),
+                "Debt/Equity": st.column_config.NumberColumn("Debt/Equity", format="%.2f", help="Financial leverage ratio"),
+                "Beta": st.column_config.NumberColumn("Beta", format="%.2f", help="Volatility vs market average"),
+                "Volume": st.column_config.NumberColumn("Volume", format="%.0f", help="Trading volume"),
+                "Health Score": st.column_config.NumberColumn("Health Score", format="%.1f", help="Combined fundamental strength (0-100)"),
+                "Yahoo": st.column_config.LinkColumn("Yahoo", display_text="📊", help="View on Yahoo Finance"),
+                "Finviz": st.column_config.LinkColumn("Finviz", display_text="📈", help="View on Finviz"),
+                "Chart": st.column_config.LinkColumn("Chart", display_text="📉", help="View on TradingView"),
+            },
+        )
+        
+        # Export options with descriptions
+        st.markdown("**📤 Export & Save Results**")
+        st.info("💡 **Export Options**:\n• **Excel Export**: Download full analysis with all metrics\n• **Use for**: Portfolio tracking, further analysis, sharing with team\n• **File includes**: All stock data, metrics, and analysis results")
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            if st.button("📥 Export Full Analysis to Excel"):
+                excel_data = make_excel({"Weekly_Watchlist": dfw.drop(["Yahoo", "Finviz", "Chart"], axis=1)})
                 st.download_button(
-                    "⬇️ Download CSV",
-                    df.to_csv(index=False),
-                    file_name=f"weekly_scan_{datetime.now().strftime('%Y%m%d_%H%M')}.csv",
-                    mime="text/csv"
+                    label="Download Excel File",
+                    data=excel_data,
+                    file_name=f"weekly_watchlist_analysis_{datetime.now().strftime('%Y%m%d')}.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                 )
+        
+        with col2:
+            st.download_button(
+                "⬇️ Download Simple List", 
+                data=make_excel({"Weekly_Watchlist": dfw[["Ticker", "Description", f"{time_period} %", "Health Score", "Market Cap"]]}), 
+                file_name=f"weekly_watchlist_simple_{datetime.now().strftime('%Y%m%d')}.xlsx", 
+                key="ww_xls_simple"
+            )
+        
+        # Visualizations with descriptions
+        st.markdown("**📊 Market Analysis Charts**")
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            st.subheader("📊 Market Cap Distribution")
+            st.caption("Shows the distribution of stocks across different market cap categories")
+            by_cap = dfw["Cap Bucket"].value_counts().rename_axis("Bucket").reset_index(name="Count")
+            cap_fig = go.Figure()
+            cap_fig.add_trace(go.Bar(x=by_cap["Bucket"], y=by_cap["Count"], marker_color='lightblue'))
+            cap_fig.update_layout(
+                height=300, 
+                xaxis_title="Market Cap Bucket", 
+                yaxis_title="Number of Stocks",
+                title="Stock Distribution by Market Cap"
+            )
+            st.plotly_chart(cap_fig, use_container_width=True)
+            
+            # Market cap insights
+            if len(by_cap) > 0:
+                dominant_cap = by_cap.iloc[0]["Bucket"]
+                st.info(f"💡 **Market Focus**: {dominant_cap} stocks dominate this watchlist")
+        
+        with col2:
+            st.subheader("📈 Momentum vs Health Score")
+            st.caption("Scatter plot showing relationship between momentum and fundamental health")
+            scatter_fig = go.Figure()
+            scatter_fig.add_trace(go.Scatter(
+                x=dfw[f"{time_period} %"], 
+                y=dfw["Health Score"],
+                mode='markers+text',
+                text=dfw["Ticker"],
+                textposition="top center",
+                marker=dict(size=8, color=dfw[f"{time_period} %"], colorscale='RdYlGn')
+            ))
+            scatter_fig.update_layout(
+                height=300,
+                xaxis_title=f"{time_period} Momentum (%)",
+                yaxis_title="Health Score",
+                title="Momentum vs Fundamental Health",
+                showlegend=False
+            )
+            st.plotly_chart(scatter_fig, use_container_width=True)
+            
+            # Scatter plot insights
+            high_momentum_high_health = len(dfw[(dfw[f"{time_period} %"] > 0) & (dfw["Health Score"] > 50)])
+            st.success(f"🎯 **Best Opportunities**: {high_momentum_high_health} stocks have both positive momentum and strong fundamentals")
+        
+        # Top recommendations with detailed analysis
+        st.subheader("🎯 Top Recommendations & Analysis")
+        st.info("💡 **How to use these recommendations**:\n• **Top 5 stocks** are ranked by your selected sorting criteria\n• **Expand each stock** for detailed metrics and analysis\n• **Use the quick analysis** to understand momentum and fundamental strength\n• **Check external links** for additional research")
+        
+        top_stocks = dfw.head(5)
+        
+        for idx, row in top_stocks.iterrows():
+            with st.expander(f"#{idx+1} {row['Ticker']} - {row['Description']}", expanded=idx==0):
+                col1, col2, col3 = st.columns(3)
+                with col1:
+                    st.metric(f"{time_period} Momentum", f"{row[f'{time_period} %']:.2f}%")
+                    st.caption("Price change over period")
+                    st.metric("Health Score", f"{row['Health Score']:.1f}")
+                    st.caption("Fundamental strength (0-100)")
+                with col2:
+                    st.metric("Market Cap", f"${row['Market Cap']/1e9:.1f}B")
+                    st.caption("Company size")
+                    st.metric("ROE", f"{row['ROE']:.1f}%")
+                    st.caption("Return on equity")
+                with col3:
+                    st.metric("Profit Margin", f"{row['Profit Margin']:.1f}%")
+                    st.caption("Net profit margin")
+                    st.metric("Beta", f"{row['Beta']:.2f}")
+                    st.caption("Volatility vs market")
+                
+                # Detailed analysis
+                momentum_status = "🟢 Bullish" if row[f'{time_period} %'] > 0 else "🔴 Bearish"
+                health_status = "🟢 Strong" if row['Health Score'] > 50 else "🟡 Moderate" if row['Health Score'] > 25 else "🔴 Weak"
+                
+                # Risk assessment
+                risk_level = "Low" if row['Beta'] < 0.8 else "Medium" if row['Beta'] < 1.2 else "High"
+                risk_icon = "🟢" if risk_level == "Low" else "🟡" if risk_level == "Medium" else "🔴"
+                
+                # Investment recommendation
+                if row[f'{time_period} %'] > 0 and row['Health Score'] > 50:
+                    recommendation = "🟢 **Strong Buy**: Positive momentum with strong fundamentals"
+                elif row[f'{time_period} %'] > 0:
+                    recommendation = "🟡 **Consider**: Positive momentum, review fundamentals"
+                elif row['Health Score'] > 50:
+                    recommendation = "🟡 **Watch**: Strong fundamentals, wait for momentum"
+                else:
+                    recommendation = "🔴 **Avoid**: Weak momentum and fundamentals"
+                
+                st.info(f"**Quick Analysis**: {momentum_status} momentum, {health_status} fundamentals, {risk_icon} {risk_level} risk")
+                st.success(f"**Investment Recommendation**: {recommendation}")
+                
+                # External links
+                col1, col2, col3 = st.columns(3)
+                with col1:
+                    st.link_button("📊 Yahoo Finance", f"https://finance.yahoo.com/quote/{row['Ticker']}")
+                with col2:
+                    st.link_button("📈 Finviz Analysis", f"https://finviz.com/quote.ashx?t={row['Ticker']}")
+                with col3:
+                    st.link_button("📉 TradingView Chart", f"https://www.tradingview.com/symbols/{row['Ticker']}")
 
+        # Market cap breakdown
+        with st.expander("📊 Top 3 Stocks by Market Cap Category", expanded=False):
+            st.info("💡 **Market Cap Categories**:\n• **Mega**: $200B+ (Blue chips, stability)\n• **Large**: $50-200B (Established companies)\n• **Mid**: $10-50B (Growth companies)\n• **Small**: $2-10B (Small caps, higher risk/reward)\n• **Micro**: $300M-2B (Penny stocks, speculative)")
+            
+            for bucket in by_cap["Bucket"].tolist():
+                top = dfw[dfw["Cap Bucket"] == bucket].head(3).copy()
+                if not top.empty:
+                    st.markdown(f"**{bucket}**")
+                    st.dataframe(
+                        top[["Ticker", f"{time_period} %", "Health Score", "Profit Margin", "ROE", "Revenue Growth", "Market Cap"]],
+                        use_container_width=True,
+                        hide_index=True,
+                        column_config={
+                            f"{time_period} %": st.column_config.NumberColumn(f"{time_period} %", format="%.2f%%"),
+                            "Health Score": st.column_config.NumberColumn("Health Score", format="%.1f"),
+                            "Profit Margin": st.column_config.NumberColumn("Profit Margin", format="%.2f%%"),
+                            "ROE": st.column_config.NumberColumn("ROE", format="%.2f%%"),
+                            "Revenue Growth": st.column_config.NumberColumn("Revenue Growth", format="%.2f%%"),
+                            "Market Cap": st.column_config.NumberColumn("Market Cap", format="%.0f"),
+                        },
+                    )
 
 
 
