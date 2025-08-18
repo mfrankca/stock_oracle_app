@@ -1559,11 +1559,10 @@ elif page == "Weekly Watchlist":
     # Custom tickers
     custom_list = []
     if universe == "Custom":
-        custom_text = st.text_area("Tickers (one per line)", value="AAPL
-MSFT
-NVDA
-SPY
-QQQ")
+        custom_text = st.text_area(
+    "Tickers (one per line)",
+    value="AAPL\nMSFT\nNVDA\nSPY\nQQQ"
+)
         custom_list = [t.strip().upper() for t in custom_text.splitlines() if t.strip()]
 
     # Universe definitions
