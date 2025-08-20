@@ -791,7 +791,7 @@ elif page == "Pattern Scanner":
         try:
             from streamlit import column_config as cc
             st.dataframe(
-                df,
+                dfw,
                 use_container_width=True,
                 hide_index=True,
                 column_config={
@@ -802,7 +802,7 @@ elif page == "Pattern Scanner":
                 },
             )
         except Exception:
-            st.markdown(df.to_html(escape=False, index=False), unsafe_allow_html=True)
+            st.markdown(dfw.to_html(escape=False, index=False), unsafe_allow_html=True)
 
 # =============================
 elif page == "Sector Tracker":
@@ -1268,3 +1268,506 @@ elif page == "Settings":
     - Fundamental data: Quarterly/annual reports
     - Options data: Real-time during market hours
     """)
+
+
+# =============================
+# Weekly Watchlist
+# =============================
+elif page == "Weekly Watchlist":
+    st.header("📊 Advanced Weekly Watchlist Scanner")
+    st.caption("Real‑time(ish) momentum & health scan. Uses 1‑minute data when available; educational only.")
+
+    # Guard: descriptions
+    try:
+        ticker_descriptions
+    except NameError:
+        ticker_descriptions = {}
+
+    # --- Controls
+    c1, c2, c3 = st.columns([1.5,1,1])
+    with c1:
+        universe = st.selectbox(
+            "Scan Universe",
+            ["Curated (ETFs + Mega‑caps)", "Tech Leaders", "Growth Focus", "Custom"],
+            help="Choose a group to scan or provide your own list."
+        )
+    with c2:
+        scan_type = st.selectbox(
+            "Scan Type",
+            ["Momentum (today)", "Momentum (5d)", "Volume Spike", "RSI Extremes", "Breakout Check"],
+            help="What to look for in today's action."
+        )
+    with c3:
+        min_mcap = st.selectbox(
+            "Min Market Cap",
+            ["Any","$2B+","$10B+","$50B+"],
+            index=2
+        )
+
+    # Custom tickers
+    custom_list = []
+    if universe == "Custom":
+        custom_text = st.text_area("Tickers (one per line)", value="""AAPL
+MSFT
+NVDA
+SPY
+QQQ""")
+        custom_list = [t.strip().upper() for t in custom_text.splitlines() if t.strip()]
+
+    # Universe definitions
+    universes = {
+        "Curated (ETFs + Mega‑caps)": ["SPY","QQQ","DIA","IWM","SMH","XLK","XLF","XLV","XLE",
+                                       "AAPL","MSFT","NVDA","AMZN","META","TSLA","GOOGL","BRK-B"],
+        "Tech Leaders": ["AAPL","MSFT","NVDA","AMZN","GOOGL","META","TSLA","AVGO","AMD","NFLX","ADBE","CRM"],
+        "Growth Focus": ["NVDA","TSLA","META","SHOP","CRWD","PLTR","SNOW","ROKU","SQ","ZM","COIN"],
+        "Custom": custom_list
+    }
+    tickers = [t for t in universes[universe] if t]
+
+    # Market‑cap filter helper (uses yfinance info; fallback allows all)
+    import yfinance as yf
+    import numpy as np
+    import pandas as pd
+    import plotly.graph_objects as go
+
+    def _passes_mcap(t):
+        try:
+            info = yf.Ticker(t).fast_info
+            mc = getattr(info, "market_cap", None)
+        except Exception:
+            mc = None
+        thr = {"Any":0, "$2B+":2_000_000_000, "$10B+":10_000_000_000, "$50B+":50_000_000_000}[min_mcap]
+        return True if (mc is None or mc >= thr) else False
+
+    @st.cache_data(ttl=45)
+    def _intraday(t):
+        try:
+            df = yf.Ticker(t).history(period="1d", interval="1m", auto_adjust=False)
+            if df is not None and not df.empty:
+                df.index = pd.to_datetime(df.index)
+                return df
+        except Exception:
+            pass
+        return pd.DataFrame()
+
+    @st.cache_data(ttl=120)
+    def _daily(t, period="3mo", interval="1d"):
+        try:
+            df = yf.Ticker(t).history(period=period, interval=interval, auto_adjust=False)
+            if df is not None and not df.empty:
+                df.index = pd.to_datetime(df.index)
+                return df
+        except Exception:
+            pass
+        return pd.DataFrame()
+
+    def _rsi(series, window=14):
+        if series is None or series.empty:
+            return np.nan
+        delta = series.diff()
+        gain = (delta.where(delta > 0, 0)).rolling(window=window).mean()
+        loss = (-delta.where(delta < 0, 0)).rolling(window=window).mean()
+        rs = gain / loss
+        rsi = 100 - (100 / (1 + rs))
+        return float(rsi.dropna().iloc[-1]) if not rsi.dropna().empty else np.nan
+
+    st.markdown("---")
+    r1, r2, r3 = st.columns([1,1,2])
+    with r1:
+        run = st.button("▶ Run Weekly Scan", type="primary", key="run_weekly")
+    with r2:
+        refresh = st.button("🔄 Refresh now", key="refresh_weekly")
+    with r3:
+        st.write(f"Last updated: **{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}**")
+
+    if run or refresh:
+        with st.spinner("Scanning..."):
+            rows = []
+            for t in tickers:
+                if not _passes_mcap(t):
+                    continue
+                try:
+                    intr = _intraday(t)
+                    hist5d = _daily(t, period="5d", interval="1d")
+                    hist60 = _daily(t, period="3mo", interval="1d")
+
+                    # price now
+                    price_now = np.nan
+                    try:
+                        fi = getattr(yf.Ticker(t), "fast_info", None)
+                        if fi and getattr(fi, "last_price", None) is not None:
+                            price_now = float(fi.last_price)
+                    except Exception:
+                        pass
+                    if np.isnan(price_now):
+                        if not intr.empty:
+                            price_now = float(intr["Close"].iloc[-1])
+                        elif not hist5d.empty:
+                            price_now = float(hist5d["Close"].iloc[-1])
+                        else:
+                            continue
+
+                    # Today momentum vs prev close
+                    if not hist5d.empty and len(hist5d) >= 2:
+                        prev_close = float(hist5d["Close"].iloc[-2])
+                        mom_today = (price_now / prev_close - 1.0) if prev_close else np.nan
+                    else:
+                        mom_today = np.nan
+
+                    # Volume ratio
+                    if not intr.empty:
+                        vol_today = float(intr["Volume"].sum())
+                    else:
+                        vol_today = float(hist5d["Volume"].iloc[-1]) if not hist5d.empty else np.nan
+                    vol_avg5 = float(hist5d["Volume"].iloc[:-1].tail(5).mean()) if not hist5d.empty else np.nan
+                    vol_ratio = (vol_today / vol_avg5) if (vol_avg5 and vol_avg5==vol_avg5 and vol_avg5>0) else np.nan
+
+                    # 5d momentum
+                    if not hist5d.empty and len(hist5d) >= 2:
+                        mom_5d = float(hist5d["Close"].iloc[-1] / hist5d["Close"].iloc[0] - 1.0)
+                    else:
+                        mom_5d = np.nan
+
+                    # RSI
+                    px = intr["Close"] if not intr.empty else (hist5d["Close"] if not hist5d.empty else pd.Series(dtype=float))
+                    rsi = _rsi(px, 14)
+
+                    # MAs
+                    ma20 = float(hist60["Close"].rolling(20).mean().iloc[-1]) if not hist60.empty and len(hist60)>=20 else np.nan
+                    ma50 = float(hist60["Close"].rolling(50).mean().iloc[-1]) if not hist60.empty and len(hist60)>=50 else np.nan
+
+                    score_map = {
+                        "Momentum (today)": mom_today,
+                        "Momentum (5d)": mom_5d,
+                        "Volume Spike": vol_ratio,
+                        "RSI Extremes": rsi,
+                        "Breakout Check": (1.0 if (price_now>ma20 and price_now>ma50 and ma20==ma20 and ma50==ma50) else 0.0),
+                    }
+                    score = score_map.get(scan_type, np.nan)
+
+                    rows.append({
+                        "Ticker": t,
+                        "Price": price_now,
+                        "Today %": mom_today,
+                        "5d %": mom_5d,
+                        "Vol Ratio": vol_ratio,
+                        "RSI": rsi,
+                        "Above 20/50": "Yes" if (price_now>ma20 and price_now>ma50 and ma20==ma20 and ma50==ma50) else "No",
+                        "Score": score,
+                    })
+                except Exception:
+                    continue
+
+            if not rows:
+                st.warning("No results. Try a different universe or loosen filters.")
+            else:
+                df = pd.DataFrame(rows)
+
+                # Links
+                def _yahoo_sym(t):  # Yahoo uses '-' for classes
+                    return t.replace('.', '-')
+                def _finviz_sym(t): # Finviz uses '.' for classes
+                    return t.replace('-', '.')
+                df["Yahoo"] = df["Ticker"].apply(lambda t: f"https://finance.yahoo.com/quote/{_yahoo_sym(t)}")
+                df["Finviz"] = df["Ticker"].apply(lambda t: f"https://finviz.com/quote.ashx?t={_finviz_sym(t)}")
+
+                # Rank per scan type
+                if scan_type in ["Momentum (today)","Momentum (5d)"]:
+                    df = df.sort_values("Score", ascending=False)
+                elif scan_type == "Volume Spike":
+                    df = df.sort_values("Vol Ratio", ascending=False)
+                elif scan_type == "RSI Extremes":
+                    df["Score"] = (50 - (df["RSI"] - 50).abs())
+                    df = df.sort_values("Score")
+                elif scan_type == "Breakout Check":
+                    df = df.sort_values(["Above 20/50","5d %"], ascending=[False, False])
+
+                st.subheader(f"Results – {len(df)} tickers")
+
+                try:
+                    from streamlit import column_config as cc
+                    colcfg = {
+                        "Price": cc.NumberColumn(format="%.2f"),
+                        "Today %": cc.NumberColumn(format="%.2f%%"),
+                        "5d %": cc.NumberColumn(format="%.2f%%"),
+                        "Vol Ratio": cc.NumberColumn(format="%.2f"),
+                        "RSI": cc.NumberColumn(format="%.1f"),
+                        "Yahoo": cc.LinkColumn(display_text="Yahoo Finance"),
+                        "Finviz": cc.LinkColumn(display_text="Finviz"),
+                    }
+                    st.dataframe(df, use_container_width=True, hide_index=True, column_config=colcfg)
+                except Exception:
+                    st.dataframe(df, use_container_width=True, hide_index=True)
+
+                # Quick chart
+                pick = st.selectbox("Quick chart", df["Ticker"].tolist())
+                hist = _daily(pick, period="3mo", interval="1d")
+                if not hist.empty:
+                    fig = go.Figure()
+                    fig.add_trace(go.Candlestick(x=hist.index, open=hist["Open"], high=hist["High"], low=hist["Low"], close=hist["Close"], name=pick))
+                    fig.update_layout(height=420, title=f"{pick} – 3mo daily")
+                    st.plotly_chart(fig, use_container_width=True)
+
+                # Export
+                st.download_button(
+                    "⬇️ Download CSV",
+                    df.to_csv(index=False),
+                    file_name=f"weekly_scan_{datetime.now().strftime('%Y%m%d_%H%M')}.csv",
+                    mime="text/csv"
+                )
+
+
+
+# =============================
+# Daily Scanner
+# =============================
+elif page == "Daily Scanner":
+    st.header("📊 Daily Momentum Scanner")
+    st.caption("Real‑time(ish) intraday scanner using 1‑minute data and daily context. Educational use only.")
+
+    # --------- Universe ---------
+    watchlists = {
+        "SPY + QQQ + DIA + IWM": ["SPY","QQQ","DIA","IWM"],
+        "Tech Leaders": ["AAPL","MSFT","NVDA","AMZN","META","GOOGL","AVGO","AMD","ADBE","CRM","NFLX"],
+        "Large Caps": ["AAPL","MSFT","NVDA","AMZN","META","GOOGL","BRK-B","JPM","V","MA","JNJ","UNH","PG","XOM"],
+        "Growth Focus": ["SHOP","CRWD","PLTR","SNOW","ROKU","SQ","ZM","COIN","NET","DDOG","U"],
+        "Custom": []
+    }
+
+    colU, colS, colC = st.columns([1.4,1,1])
+    with colU:
+        selected_watchlist = st.selectbox("Scan Universe", list(watchlists.keys()), key="scan_universe_daily")
+    with colS:
+        scan_type = st.selectbox(
+            "Scanner Type",
+            ["Momentum Movers", "Volume Spikes", "Breakout Candidates", "Gap Up/Down", "RSI Extremes"],
+            help="Pick the condition to screen for."
+        )
+    with colC:
+        min_mcap_label = st.selectbox("Min Market Cap", ["Any","$2B+","$10B+","$50B+"], index=2)
+
+    if selected_watchlist == "Custom":
+        custom_text = st.text_area(
+            "Tickers (one per line)",
+            value="""AAPL
+MSFT
+NVDA
+SPY
+QQQ"""
+        )
+        watchlists["Custom"] = [t.strip().upper() for t in custom_text.splitlines() if t.strip()]
+
+    tickers_to_scan = watchlists[selected_watchlist]
+
+    # --------- Controls ---------
+    colA, colB, colC2, colD = st.columns([1,1,1,2])
+    with colA:
+        run = st.button("🔍 Run Scanner", key="run_scanner_daily", type="primary")
+    with colB:
+        refresh = st.button("🔄 Refresh", key="refresh_daily")
+    with colC2:
+        loosen = st.toggle("Loosen filters", value=False, help="Relax thresholds if you get empty results.")
+    with colD:
+        st.write(f"Last updated: **{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}**")
+
+    # Thresholds
+    vol_thr = 1.5 if loosen else 2.0
+    mom_thr = 0.03 if loosen else 0.05      # Momentum Movers threshold
+    brk_mom = 0.01 if loosen else 0.02      # Breakout minimal momentum
+    gap_thr = 0.02 if loosen else 0.03      # Gap magnitude
+    rsi_hi, rsi_lo = 70, 30
+
+    # --------- Helpers ---------
+    import yfinance as yf
+    import numpy as np
+    import pandas as pd
+    import plotly.graph_objects as go
+
+    @st.cache_data(ttl=60)
+    def _intraday(t):
+        try:
+            df = yf.Ticker(t).history(period="1d", interval="1m", auto_adjust=False)
+            if df is not None and not df.empty:
+                df.index = pd.to_datetime(df.index)
+                return df
+        except Exception:
+            pass
+        return pd.DataFrame()
+
+    @st.cache_data(ttl=120)
+    def _daily_3mo(t):
+        try:
+            df = yf.Ticker(t).history(period="3mo", interval="1d", auto_adjust=False)
+            if df is not None and not df.empty:
+                df.index = pd.to_datetime(df.index)
+                return df
+        except Exception:
+            pass
+        return pd.DataFrame()
+
+    def _fast_mcap(tk: yf.Ticker):
+        try:
+            fi = getattr(tk, "fast_info", None)
+            return getattr(fi, "market_cap", None) if fi else None
+        except Exception:
+            return None
+
+    min_cap_value = {"Any":0, "$2B+":2_000_000_000, "$10B+":10_000_000_000, "$50B+":50_000_000_000}[min_mcap_label]
+
+    if run or refresh:
+        with st.spinner("Scanning for opportunities..."):
+            results = []
+
+            for ticker in tickers_to_scan:
+                try:
+                    tk = yf.Ticker(ticker)
+
+                    # Market cap (do not exclude if missing)
+                    mc = _fast_mcap(tk)
+                    if mc is not None and mc < min_cap_value:
+                        continue
+
+                    # Data
+                    d3 = _daily_3mo(ticker)
+                    if d3.empty or len(d3) < 5:
+                        continue
+
+                    intr = _intraday(ticker)
+
+                    # Price and change vs prior close
+                    if not d3.empty and len(d3) >= 2:
+                        prev_close = float(d3["Close"].iloc[-2])
+                    else:
+                        prev_close = np.nan
+
+                    if not intr.empty:
+                        last_price = float(intr["Close"].iloc[-1])
+                        today_open = float(intr["Open"].iloc[0])
+                        todays_volume = float(intr["Volume"].sum())
+                    else:
+                        last_price = float(d3["Close"].iloc[-1])
+                        todays_volume = float(d3["Volume"].iloc[-1]) if "Volume" in d3 else np.nan
+                        today_open = float(d3["Open"].iloc[-1]) if "Open" in d3 else last_price
+
+                    if prev_close and not np.isnan(prev_close) and prev_close != 0:
+                        price_change = (last_price / prev_close) - 1.0
+                    else:
+                        price_change = np.nan
+
+                    # Baseline volume: prior 10 days, excluding today
+                    vol_window = d3["Volume"].iloc[:-1].tail(10) if "Volume" in d3 else pd.Series(dtype=float)
+                    avg_volume = float(vol_window.mean()) if not vol_window.empty else np.nan
+                    volume_ratio = (todays_volume / avg_volume) if (avg_volume and avg_volume > 0) else np.nan
+
+                    # Moving averages
+                    ma20 = float(d3["Close"].rolling(20).mean().iloc[-1]) if len(d3) >= 20 else np.nan
+                    ma50 = float(d3["Close"].rolling(50).mean().iloc[-1]) if len(d3) >= 50 else np.nan
+
+                    # RSI(14) on daily closes
+                    delta = d3["Close"].diff()
+                    gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
+                    loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
+                    rs = gain / loss
+                    rsi = 100 - (100 / (1 + rs))
+                    current_rsi = float(rsi.iloc[-1]) if not rsi.dropna().empty else np.nan
+
+                    # Conditions
+                    include = False
+                    if scan_type == "Momentum Movers" and not np.isnan(price_change) and price_change > mom_thr:
+                        include = True
+                    elif scan_type == "Volume Spikes" and not np.isnan(volume_ratio) and volume_ratio > vol_thr:
+                        include = True
+                    elif scan_type == "Breakout Candidates" and (not np.isnan(ma20)) and last_price > ma20 and price_change > brk_mom:
+                        include = True
+                    elif scan_type == "Gap Up/Down" and not np.isnan(price_change) and abs(price_change) > gap_thr:
+                        include = True
+                    elif scan_type == "RSI Extremes" and (not np.isnan(current_rsi)) and (current_rsi >= rsi_hi or current_rsi <= rsi_lo):
+                        include = True
+
+                    if include:
+                        # Optional sector/industry (avoid blocking on failures)
+                        sector = "N/A"
+                        industry = "N/A"
+                        try:
+                            info = tk.info
+                            if isinstance(info, dict):
+                                sector = info.get("sector", "N/A")
+                                industry = info.get("industry", "N/A")
+                        except Exception:
+                            pass
+
+                        results.append({
+                            "Ticker": ticker,
+                            "Price": last_price,
+                            "Change %": price_change,
+                            "Volume Ratio": volume_ratio,
+                            "RSI": current_rsi,
+                            "Above 20/50": "Yes" if (not np.isnan(ma20) and not np.isnan(ma50) and last_price > ma20 and last_price > ma50) else "No",
+                            "Sector": sector,
+                            "Industry": industry,
+                            "Market Cap": mc if mc is not None else 0
+                        })
+                except Exception:
+                    continue
+
+            if not results:
+                st.warning("No matches with the current thresholds. Try **Loosen filters**, switch universe, or hit **Refresh** during market hours.")
+            else:
+                df = pd.DataFrame(results)
+
+                # Add links
+                def _yahoo_sym(t):  # Yahoo uses '-' for classes
+                    return t.replace('.', '-')
+                def _finviz_sym(t): # Finviz uses '.' for classes
+                    return t.replace('-', '.')
+                df["Yahoo"] = df["Ticker"].apply(lambda t: f"https://finance.yahoo.com/quote/{_yahoo_sym(t)}")
+                df["Finviz"] = df["Ticker"].apply(lambda t: f"https://finviz.com/quote.ashx?t={_finviz_sym(t)}")
+
+                # Sorting heuristic by scan type
+                if scan_type == "Momentum Movers":
+                    df = df.sort_values("Change %", ascending=False)
+                elif scan_type == "Volume Spikes":
+                    df = df.sort_values("Volume Ratio", ascending=False)
+                elif scan_type == "Breakout Candidates":
+                    df = df.sort_values(["Above 20/50","Change %"], ascending=[False, False])
+                elif scan_type == "Gap Up/Down":
+                    df["Abs Change %"] = df["Change %"].abs()
+                    df = df.sort_values("Abs Change %", ascending=False)
+                elif scan_type == "RSI Extremes":
+                    df["RSI Dist"] = (df["RSI"] - 50).abs()
+                    df = df.sort_values("RSI Dist", ascending=False)
+
+                st.subheader(f"📈 {scan_type} — {len(df)} result(s)")
+
+                try:
+                    from streamlit import column_config as cc
+                    colcfg = {
+                        "Price": cc.NumberColumn(format="%.2f"),
+                        "Change %": cc.NumberColumn(format="%.2f%%"),
+                        "Volume Ratio": cc.NumberColumn(format="%.2f"),
+                        "RSI": cc.NumberColumn(format="%.1f"),
+                        "Yahoo": cc.LinkColumn(display_text="Yahoo Finance"),
+                        "Finviz": cc.LinkColumn(display_text="Finviz"),
+                    }
+                    st.dataframe(df, use_container_width=True, hide_index=True, column_config=colcfg)
+                except Exception:
+                    st.dataframe(df, use_container_width=True, hide_index=True)
+
+                # Quick chart
+                pick = st.selectbox("Quick chart", df["Ticker"].tolist())
+                hist = _daily_3mo(pick)
+                if not hist.empty:
+                    fig = go.Figure()
+                    fig.add_trace(go.Candlestick(x=hist.index, open=hist["Open"], high=hist["High"], low=hist["Low"], close=hist["Close"], name=pick))
+                    fig.update_layout(height=420, title=f"{pick} — 3mo daily")
+                    st.plotly_chart(fig, use_container_width=True)
+
+                # Export
+                st.download_button(
+                    "⬇️ Download CSV",
+                    df.to_csv(index=False),
+                    file_name=f"daily_scan_{datetime.now().strftime('%Y%m%d_%H%M')}.csv",
+                    mime="text/csv"
+                )
+
+
