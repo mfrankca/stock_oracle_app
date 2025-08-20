@@ -786,24 +786,1827 @@ elif page == "Pattern Scanner":
                     pass  # Silent error handling
             
             # Display results
+            if pattern_results:
+                st.subheader("🎯 Pattern Detection Results")
+                
+                # Convert to DataFrame
+                results_df = pd.DataFrame(pattern_results)
+                
+                # Summary metrics
+                col1, col2, col3, col4 = st.columns(4)
+                with col1:
+                    st.metric("Stocks Scanned", len(tickers))
+                with col2:
+                    st.metric("Patterns Found", len(pattern_results))
+                with col3:
+                    bullish_count = len(results_df[results_df['Trend'] == 'Bullish'])
+                    st.metric("Bullish Patterns", bullish_count)
+                with col4:
+                    avg_confidence = np.mean([float(c.replace('%', '')) for c in results_df['Confidence']])
+                    st.metric("Avg Confidence", f"{avg_confidence:.1f}%")
+                
+                # Results table
+                st.dataframe(
+                    results_df,
+                    use_container_width=True,
+                    column_config={
+                        "Ticker": st.column_config.TextColumn(
+                            "Ticker",
+                            help="Stock symbol"
+                        ),
+                        "Patterns": st.column_config.TextColumn(
+                            "Detected Patterns",
+                            help="Technical patterns identified"
+                        ),
+                        "Confidence": st.column_config.TextColumn(
+                            "Confidence",
+                            help="Pattern recognition confidence level"
+                        ),
+                        "Current Price": st.column_config.TextColumn(
+                            "Price",
+                            help="Current stock price"
+                        ),
+                        "Momentum": st.column_config.TextColumn(
+                            "Momentum",
+                            help="20-day price momentum"
+                        ),
+                        "Volume (M)": st.column_config.TextColumn(
+                            "Volume",
+                            help="Average daily volume in millions"
+                        ),
+                        "RSI": st.column_config.TextColumn(
+                            "RSI",
+                            help="Relative Strength Index (14-period)"
+                        ),
+                        "Trend": st.column_config.TextColumn(
+                            "Trend",
+                            help="Overall price trend direction"
+                        )
+                    }
+                )
+                
+                # Export functionality
+                col1, col2 = st.columns(2)
+                with col1:
+                    csv_data = results_df.to_csv(index=False)
+                    st.download_button(
+                        "📊 Download Results (CSV)",
+                        csv_data,
+                        file_name=f"pattern_scan_{datetime.now().strftime('%Y%m%d_%H%M')}.csv",
+                        mime="text/csv"
+                    )
+                
+                with col2:
+                    st.info("💡 **Tip**: Focus on stocks with high confidence patterns and strong volume confirmation for best results.")
+            
+            else:
+                st.warning("No patterns found matching your criteria. Try adjusting the confidence threshold or watchlist selection.")
 
-        # Display results
-        try:
-            from streamlit import column_config as cc
-            st.dataframe(
-                dfw,
-                use_container_width=True,
-                hide_index=True,
-                column_config={
-                    "Ticker": st.column_config.TextColumn("Ticker", width="small"),
-                    "Yahoo": cc.LinkColumn(display_text="Yahoo Finance"),
-                    "Finviz": cc.LinkColumn(display_text="Finviz"),
-                    "Chart": cc.LinkColumn(display_text="TradingView"),
-                },
+# =============================
+# Options Flow Analysis
+# =============================
+elif page == "Options Flow":
+    st.header("📊 Advanced Options Flow Analysis")
+    st.caption("Monitor unusual options activity and institutional flow for trading opportunities")
+    
+    # Ticker descriptions for quick reference
+    ticker_descriptions = {
+        "AAPL": "Apple Inc. - Consumer electronics, software, and services",
+        "MSFT": "Microsoft Corporation - Software, cloud computing, and technology",
+        "GOOGL": "Alphabet Inc. (Google) - Internet services, advertising, and technology",
+        "AMZN": "Amazon.com Inc. - E-commerce, cloud computing, and digital services",
+        "NVDA": "NVIDIA Corporation - Graphics processing units and AI computing",
+        "META": "Meta Platforms Inc. - Social media and digital advertising",
+        "TSLA": "Tesla Inc. - Electric vehicles, energy storage, and solar panels",
+        "SPY": "SPDR S&P 500 ETF - Tracks the S&P 500 index (500 largest US companies)",
+        "QQQ": "Invesco QQQ Trust - Tracks NASDAQ-100 (top 100 non-financial NASDAQ stocks)",
+        "IWM": "iShares Russell 2000 ETF - Tracks small-cap US stocks"
+    }
+    
+    # Scanner Configuration
+    st.subheader("🔧 Flow Scanner Configuration")
+    
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        st.markdown("**📋 Scanner Settings**")
+        flow_ticker = st.text_input(
+            "Ticker Symbol",
+            value="AAPL",
+            help="Enter ticker to analyze options flow"
+        )
+        
+        if flow_ticker.upper() in ticker_descriptions:
+            st.info(f"**{flow_ticker.upper()}**: {ticker_descriptions[flow_ticker.upper()]}")
+        
+        expiry_filter = st.selectbox(
+            "Expiration Focus",
+            ["All Expirations", "This Week", "Next Week", "This Month", "Next Month"],
+            help="Focus on specific expiration periods"
+        )
+    
+    with col2:
+        st.markdown("**📊 Flow Filters**")
+        min_volume = st.number_input(
+            "Min Volume",
+            min_value=1,
+            max_value=10000,
+            value=100,
+            help="Minimum options volume to display"
+        )
+        
+        min_open_interest = st.number_input(
+            "Min Open Interest",
+            min_value=1,
+            max_value=10000,
+            value=50,
+            help="Minimum open interest to display"
+        )
+        
+        unusual_activity_threshold = st.slider(
+            "Unusual Activity Threshold",
+            min_value=1.5,
+            max_value=10.0,
+            value=3.0,
+            step=0.5,
+            help="Volume vs Open Interest ratio for unusual activity"
+        )
+    
+    with col3:
+        st.markdown("**🎯 Analysis Options**")
+        include_puts = st.checkbox("Include Puts", value=True)
+        include_calls = st.checkbox("Include Calls", value=True)
+        
+        flow_analysis_type = st.selectbox(
+            "Analysis Type",
+            ["All Activity", "Unusual Activity Only", "Large Trades Only"],
+            help="Filter options activity by type"
+        )
+    
+    # Run analysis button
+    if st.button("🔍 Analyze Options Flow", type="primary"):
+        with st.spinner("Analyzing options flow..."):
+            try:
+                # Get option expirations
+                expirations = get_option_expiries(flow_ticker)
+                if not expirations:
+                    st.error(f"No options data available for {flow_ticker}")
+                    st.stop()
+                
+                # Filter expirations based on selection
+                if expiry_filter == "This Week":
+                    # Logic to filter for this week's expirations
+                    pass
+                
+                flow_results = []
+                
+                # Analyze each expiration
+                for expiry in expirations[:5]:  # Limit to first 5 expirations
+                    try:
+                        option_chain = get_option_chain(flow_ticker, expiry)
+                        calls = option_chain.get('calls', pd.DataFrame())
+                        puts = option_chain.get('puts', pd.DataFrame())
+                        
+                        # Analyze calls
+                        if include_calls and not calls.empty:
+                            for _, call in calls.iterrows():
+                                try:
+                                    volume = call.get('volume', 0)
+                                    open_interest = call.get('openInterest', 0)
+                                    last_price = call.get('lastPrice', 0)
+                                    strike = call.get('strike', 0)
+                                    
+                                    if volume >= min_volume and open_interest >= min_open_interest:
+                                        # Calculate unusual activity
+                                        volume_oi_ratio = volume / open_interest if open_interest > 0 else 0
+                                        
+                                        if flow_analysis_type == "All Activity" or \
+                                           (flow_analysis_type == "Unusual Activity Only" and volume_oi_ratio >= unusual_activity_threshold) or \
+                                           (flow_analysis_type == "Large Trades Only" and volume >= 500):
+                                            
+                                            flow_results.append({
+                                                'Expiration': expiry,
+                                                'Type': 'Call',
+                                                'Strike': f"${strike:.0f}",
+                                                'Volume': volume,
+                                                'Open Interest': open_interest,
+                                                'Volume/OI Ratio': f"{volume_oi_ratio:.2f}",
+                                                'Last Price': f"${last_price:.2f}",
+                                                'Unusual': "Yes" if volume_oi_ratio >= unusual_activity_threshold else "No"
+                                            })
+                                except:
+                                    pass
+                        
+                        # Analyze puts
+                        if include_puts and not puts.empty:
+                            for _, put in puts.iterrows():
+                                try:
+                                    volume = put.get('volume', 0)
+                                    open_interest = put.get('openInterest', 0)
+                                    last_price = put.get('lastPrice', 0)
+                                    strike = put.get('strike', 0)
+                                    
+                                    if volume >= min_volume and open_interest >= min_open_interest:
+                                        # Calculate unusual activity
+                                        volume_oi_ratio = volume / open_interest if open_interest > 0 else 0
+                                        
+                                        if flow_analysis_type == "All Activity" or \
+                                           (flow_analysis_type == "Unusual Activity Only" and volume_oi_ratio >= unusual_activity_threshold) or \
+                                           (flow_analysis_type == "Large Trades Only" and volume >= 500):
+                                            
+                                            flow_results.append({
+                                                'Expiration': expiry,
+                                                'Type': 'Put',
+                                                'Strike': f"${strike:.0f}",
+                                                'Volume': volume,
+                                                'Open Interest': open_interest,
+                                                'Volume/OI Ratio': f"{volume_oi_ratio:.2f}",
+                                                'Last Price': f"${last_price:.2f}",
+                                                'Unusual': "Yes" if volume_oi_ratio >= unusual_activity_threshold else "No"
+                                            })
+                                except:
+                                    pass
+                    
+                    except Exception as e:
+                        pass  # Silent error handling
+                
+                # Display results
+                if flow_results:
+                    st.subheader("📊 Options Flow Analysis Results")
+                    
+                    # Convert to DataFrame
+                    flow_df = pd.DataFrame(flow_results)
+                    
+                    # Summary metrics
+                    col1, col2, col3, col4 = st.columns(4)
+                    with col1:
+                        st.metric("Total Options", len(flow_results))
+                    with col2:
+                        calls_count = len(flow_df[flow_df['Type'] == 'Call'])
+                        st.metric("Calls", calls_count)
+                    with col3:
+                        puts_count = len(flow_df[flow_df['Type'] == 'Put'])
+                        st.metric("Puts", puts_count)
+                    with col4:
+                        unusual_count = len(flow_df[flow_df['Unusual'] == 'Yes'])
+                        st.metric("Unusual Activity", unusual_count)
+                    
+                    # Results table
+                    st.dataframe(
+                        flow_df,
+                        use_container_width=True,
+                        column_config={
+                            "Expiration": st.column_config.TextColumn(
+                                "Expiration",
+                                help="Option expiration date"
+                            ),
+                            "Type": st.column_config.TextColumn(
+                                "Type",
+                                help="Call or Put option"
+                            ),
+                            "Strike": st.column_config.TextColumn(
+                                "Strike Price",
+                                help="Option strike price"
+                            ),
+                            "Volume": st.column_config.NumberColumn(
+                                "Volume",
+                                help="Today's trading volume"
+                            ),
+                            "Open Interest": st.column_config.NumberColumn(
+                                "Open Interest",
+                                help="Total open contracts"
+                            ),
+                            "Volume/OI Ratio": st.column_config.TextColumn(
+                                "Volume/OI",
+                                help="Volume to Open Interest ratio"
+                            ),
+                            "Last Price": st.column_config.TextColumn(
+                                "Last Price",
+                                help="Last traded price"
+                            ),
+                            "Unusual": st.column_config.TextColumn(
+                                "Unusual",
+                                help="Unusual activity indicator"
+                            )
+                        }
+                    )
+                    
+                    # Export functionality
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        csv_data = flow_df.to_csv(index=False)
+                        st.download_button(
+                            "📊 Download Flow Data (CSV)",
+                            csv_data,
+                            file_name=f"options_flow_{flow_ticker}_{datetime.now().strftime('%Y%m%d_%H%M')}.csv",
+                            mime="text/csv"
+                        )
+                    
+                    with col2:
+                        st.info("💡 **Tip**: High Volume/OI ratios often indicate institutional activity and potential price movement.")
+                
+                else:
+                    st.warning("No options flow data found matching your criteria.")
+            
+            except Exception as e:
+                st.error(f"Error analyzing options flow: {str(e)}")
+
+
+
+# =============================
+# Options Strategy Builder (Advanced Options Analysis)
+# =============================
+elif page == "Options Strategy Builder":
+    st.header("🎯 Advanced Options Strategy Builder")
+    st.caption("Discover high-probability options strategies with detailed analysis and risk assessment")
+
+    # Ticker descriptions for quick reference
+    ticker_descriptions = {
+        "AAPL": "Apple Inc. - Consumer electronics, software, and services",
+        "MSFT": "Microsoft Corporation - Software, cloud computing, and technology",
+        "GOOGL": "Alphabet Inc. (Google) - Internet services, advertising, and technology",
+        "AMZN": "Amazon.com Inc. - E-commerce, cloud computing, and digital services",
+        "NVDA": "NVIDIA Corporation - Graphics processing units and AI computing",
+        "META": "Meta Platforms Inc. - Social media and digital advertising",
+        "TSLA": "Tesla Inc. - Electric vehicles, energy storage, and solar panels",
+        "SPY": "SPDR S&P 500 ETF - Tracks the S&P 500 index (500 largest US companies)",
+        "QQQ": "Invesco QQQ Trust - Tracks NASDAQ-100 (top 100 non-financial NASDAQ stocks)",
+        "IWM": "iShares Russell 2000 ETF - Tracks small-cap US stocks"
+    }
+
+    # Inputs
+    col1, col2 = st.columns([2, 1])
+    with col1:
+        sym = st.text_input("Ticker symbol", value="AAPL", key="best_ticker")
+    with col2:
+        if sym.upper() in ticker_descriptions:
+            st.info(f"**{sym.upper()}**: {ticker_descriptions[sym.upper()]}")
+        else:
+            st.info("Enter a ticker symbol to analyze options")
+    # Strategy selection with detailed descriptions
+    st.subheader("📊 Strategy Selection")
+    col1, col2 = st.columns([1, 1])
+    
+    with col1:
+        strategy_category = st.selectbox(
+            "Strategy Category",
+            ["Premium Collection", "Directional", "All Strategies"],
+            key="strategy_category",
+            help="Premium Collection: High probability income strategies. Directional: Betting on price movement. All: Complete analysis."
+        )
+    
+    with col2:
+        if strategy_category == "Premium Collection":
+            strategies = st.multiselect(
+                "Premium Collection Strategies",
+                ["Iron Condor", "Cash-Secured Put", "Covered Call", "Calendar Spread"],
+                default=["Iron Condor"],
+                key="best_strats",
+                help="High-probability strategies that collect premium and profit from time decay"
             )
-        except Exception:
-            st.markdown(dfw.to_html(escape=False, index=False), unsafe_allow_html=True)
+        elif strategy_category == "Directional":
+            strategies = st.multiselect(
+                "Directional Strategies",
+                ["Bull Put Spread", "Bear Call Spread", "Butterfly Spread", "Straddle/Strangle"],
+                default=["Bull Put Spread", "Bear Call Spread"],
+                key="best_strats",
+                help="Strategies that profit from directional price movement"
+            )
+        else:
+            strategies = st.multiselect(
+                "All Available Strategies",
+                ["Bull Put Spread", "Bear Call Spread", "Iron Condor", "Cash-Secured Put", "Covered Call", "Calendar Spread", "Butterfly Spread", "Straddle/Strangle"],
+                default=["Bull Put Spread", "Bear Call Spread", "Iron Condor"],
+                key="best_strats",
+                help="Complete strategy analysis for all market conditions"
+            )
+    # Advanced parameters
+    st.subheader("⚙️ Strategy Parameters")
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        target_delta = st.slider(
+            "Target Delta (Short Leg)", 
+            0.10, 0.40, 0.25, 0.01, 
+            key="best_delta",
+            help="Delta measures option sensitivity to stock price. 0.25 = 25% chance of being in-the-money at expiration."
+        )
+        min_pop = st.slider(
+            "Minimum POP (%)", 
+            50, 90, 70, 5, 
+            key="min_pop",
+            help="Probability of Profit - minimum threshold for strategy selection"
+        )
+    
+    with col2:
+        wing_pct = st.slider(
+            "Wing Width (% of spot)", 
+            1.0, 15.0, 5.0, 0.5, 
+            key="best_wing",
+            help="Distance between strike prices in spreads. Wider = more risk/reward, narrower = less risk/reward."
+        )
+        min_roi = st.slider(
+            "Minimum ROI (%)", 
+            10, 100, 20, 5, 
+            key="min_roi",
+            help="Return on Investment - minimum risk-reward ratio"
+        )
+    
+    with col3:
+        scan_n = st.slider(
+            "Expirations to Scan", 
+            1, 8, 4, 1, 
+            key="best_scan",
+            help="Number of option expiration dates to analyze. More expirations = more opportunities but longer scan time."
+        )
+        max_risk = st.number_input(
+            "Max Risk per Trade ($)", 
+            min_value=100, max_value=10000, value=1000, step=100,
+            key="max_risk",
+            help="Maximum dollar risk per strategy (for position sizing)"
+        )
+    
+    # Market condition analysis
+    st.subheader("📊 Market Analysis")
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        market_outlook = st.selectbox(
+            "Market Outlook",
+            ["Bullish", "Bearish", "Neutral", "High Volatility", "Low Volatility"],
+            key="market_outlook",
+            help="Current market sentiment to filter appropriate strategies"
+        )
+    
+    with col2:
+        include_analysis = st.checkbox(
+            "Include Detailed Analysis",
+            value=True,
+            key="include_analysis",
+            help="Show strategy explanations, risk assessment, and management tips"
+        )
 
+    # Helpers
+    def _norm_cdf(x: float) -> float:
+        return 0.5 * (1.0 + math.erf(x / math.sqrt(2.0))) if hasattr(math, "erf") else 0.0
+
+    def _bs_delta_call(S, K, r, T, sigma):
+        try:
+            if S <= 0 or K <= 0 or sigma <= 0 or T <= 0:
+                return float("nan")
+            d1 = (math.log(S/K) + (r + 0.5*sigma*sigma)*T) / (sigma*math.sqrt(T))
+            return _norm_cdf(d1)
+        except Exception:
+            return float("nan")
+
+    def _bs_delta_put(S, K, r, T, sigma):
+        dc = _bs_delta_call(S, K, r, T, sigma)
+        return dc - 1 if dc==dc else float("nan")
+
+    def _mid(row):
+        b = float(row.get("bid", np.nan)) if "bid" in row else np.nan
+        a = float(row.get("ask", np.nan)) if "ask" in row else np.nan
+        lp = float(row.get("lastPrice", np.nan)) if "lastPrice" in row else np.nan
+        vals = [x for x in [b, a, lp] if not np.isnan(x)]
+        return float(np.mean(vals)) if vals else 0.0
+
+    # Build suggestions
+    if st.button("🔍 Analyze Options Strategies", key="best_btn") and sym:
+        S = fetch_live_price(sym)
+        if np.isnan(S):
+            st.warning("Live price unavailable; using last close.")
+            hist = fetch_price_history(sym, period="5d", interval="1d")
+            if not hist.empty:
+                S = float(hist["Close"].iloc[-1])
+        if np.isnan(S):
+            st.error("Unable to determine spot price.")
+        else:
+            expiries = get_option_expiries(sym)
+            if not expiries:
+                st.error("No expirations available.")
+            else:
+                rf = st.session_state.get("risk_free", RISK_FREE_DEFAULT)
+                picks = []
+                for expiry in expiries[:scan_n]:
+                    chain = get_option_chain(sym, expiry)
+                    calls = chain["calls"].copy(); puts = chain["puts"].copy()
+                    for df in (calls, puts):
+                        if "impliedVolatility" not in df.columns:
+                            df["impliedVolatility"] = np.nan
+                    try:
+                        days = (pd.to_datetime(expiry) - pd.Timestamp.today().normalize()).days
+                        T = max(days, 1) / 365.0
+                    except Exception:
+                        T = 30/365.0
+
+                    if not calls.empty:
+                        calls["delta_est"] = calls.apply(lambda r: _bs_delta_call(S, float(r["strike"]), rf, T, float(r.get("impliedVolatility", np.nan) or np.nan)), axis=1)
+                    if not puts.empty:
+                        puts["delta_est"] = puts.apply(lambda r: _bs_delta_put (S, float(r["strike"]), rf, T, float(r.get("impliedVolatility", np.nan) or np.nan)), axis=1)
+
+                    # Bull Put Spread
+                    if "Bull Put Spread" in strategies and not puts.empty:
+                        cand_sp = puts.copy(); cand_sp["abs_delta"] = cand_sp["delta_est"].abs()
+                        cand_sp = cand_sp.loc[(cand_sp["abs_delta"] >= target_delta-0.08) & (cand_sp["abs_delta"] <= target_delta+0.08)]
+                        if not cand_sp.empty:
+                            short_put = cand_sp.iloc[(cand_sp["strike"] - S*(1.0 - wing_pct/100.0)).abs().argsort()[:1]].iloc[0]
+                            long_put  = puts.iloc[(puts["strike"] - float(short_put["strike"]) * (1.0 - wing_pct/100.0)).abs().argsort()[:1]].iloc[0]
+                            width = float(short_put["strike"]) - float(long_put["strike"])
+                            credit = max(0.0, _mid(short_put) - _mid(long_put))
+                            max_loss = max(width - credit, 1e-6)
+                            pop = 1.0 - abs(float(short_put.get("delta_est", np.nan))) if short_put.get("delta_est", np.nan)==short_put.get("delta_est", np.nan) else np.nan
+                            roi = credit / max_loss
+                            score = (roi * pop) if pop==pop else 0.0
+                            picks.append({
+                                "Strategy":"Bull Put Spread","Expiry":expiry,
+                                "Short": float(short_put["strike"]), "Long": float(long_put["strike"]),
+                                "Width": width, "Credit": credit, "MaxLoss": max_loss,
+                                "POP": pop, "ROI": roi, "Score": score
+                            })
+
+                    # Bear Call Spread
+                    if "Bear Call Spread" in strategies and not calls.empty:
+                        cand_sc = calls.copy(); cand_sc["abs_delta"] = cand_sc["delta_est"].abs()
+                        cand_sc = cand_sc.loc[(cand_sc["abs_delta"] >= target_delta-0.08) & (cand_sc["abs_delta"] <= target_delta+0.08)]
+                        if not cand_sc.empty:
+                            short_call = cand_sc.iloc[(cand_sc["strike"] - S*(1.0 + wing_pct/100.0)).abs().argsort()[:1]].iloc[0]
+                            long_call  = calls.iloc[(calls["strike"] - float(short_call["strike"]) * (1.0 + wing_pct/100.0)).abs().argsort()[:1]].iloc[0]
+                            width = float(long_call["strike"]) - float(short_call["strike"])
+                            credit = max(0.0, _mid(short_call) - _mid(long_call))
+                            max_loss = max(width - credit, 1e-6)
+                            pop = 1.0 - float(short_call.get("delta_est", np.nan)) if short_call.get("delta_est", np.nan)==short_call.get("delta_est", np.nan) else np.nan
+                            roi = credit / max_loss
+                            score = (roi * pop) if pop==pop else 0.0
+                            picks.append({
+                                "Strategy":"Bear Call Spread","Expiry":expiry,
+                                "Short": float(short_call["strike"]), "Long": float(long_call["strike"]),
+                                "Width": width, "Credit": credit, "MaxLoss": max_loss,
+                                "POP": pop, "ROI": roi, "Score": score
+                            })
+
+                    # Iron Condor
+                    if "Iron Condor" in strategies and not calls.empty and not puts.empty:
+                        cand_sc = calls.copy(); cand_sc["abs_delta"] = cand_sc["delta_est"].abs()
+                        cand_sp = puts.copy();  cand_sp["abs_delta"] = cand_sp["delta_est"].abs()
+                        cand_sc = cand_sc.loc[(cand_sc["abs_delta"] >= target_delta-0.08) & (cand_sc["abs_delta"] <= target_delta+0.08)]
+                        cand_sp = cand_sp.loc[(cand_sp["abs_delta"] >= target_delta-0.08) & (cand_sp["abs_delta"] <= target_delta+0.08)]
+                        if not cand_sc.empty and not cand_sp.empty:
+                            sc = cand_sc.iloc[(cand_sc["strike"] - S*(1.0 + wing_pct/100.0)).abs().argsort()[:1]].iloc[0]
+                            sp = cand_sp.iloc[(cand_sp["strike"] - S*(1.0 - wing_pct/100.0)).abs().argsort()[:1]].iloc[0]
+                            lc = calls.iloc[(calls["strike"] - float(sc["strike"]) * (1.0 + wing_pct/100.0)).abs().argsort()[:1]].iloc[0]
+                            lp = puts .iloc[(puts ["strike"] - float(sp["strike"]) * (1.0 - wing_pct/100.0)).abs().argsort()[:1]].iloc[0]
+                            width_call = float(lc["strike"]) - float(sc["strike"])
+                            width_put  = float(sp["strike"]) - float(lp["strike"])
+                            credit = max(0.0, (_mid(sc) - _mid(lc)) + (_mid(sp) - _mid(lp)))
+                            worst_width = max(width_call, width_put)
+                            max_loss = max(worst_width - credit, 1e-6)
+                            pop_call = 1.0 - float(sc.get("delta_est", np.nan)) if sc.get("delta_est", np.nan)==sc.get("delta_est", np.nan) else np.nan
+                            pop_put  = 1.0 - abs(float(sp.get("delta_est", np.nan))) if sp.get("delta_est", np.nan)==sp.get("delta_est", np.nan) else np.nan
+                            pop = (pop_call * pop_put) if (pop_call==pop_call and pop_put==pop_put) else np.nan
+                            roi = credit / max_loss
+                            score = (roi * pop) if pop==pop else 0.0
+                            picks.append({
+                                "Strategy":"Iron Condor","Expiry":expiry,
+                                "Short": f"P {float(sp['strike']):.2f} / C {float(sc['strike']):.2f}",
+                                "Long":  f"P {float(lp['strike']):.2f} / C {float(lc['strike']):.2f}",
+                                "Width": worst_width, "Credit": credit, "MaxLoss": max_loss,
+                                "POP": pop, "ROI": roi, "Score": score
+                            })
+
+                if not picks:
+                    st.warning("No viable candidates found. Try adjusting parameters or scanning more expirations.")
+                else:
+                    # Filter results based on criteria
+                    dfp = pd.DataFrame(picks)
+                    dfp = dfp[(dfp['POP'] >= min_pop/100) & (dfp['ROI'] >= min_roi/100)]
+                    
+                    if dfp.empty:
+                        st.warning(f"No strategies meet your criteria (POP ≥ {min_pop}%, ROI ≥ {min_roi}%). Try relaxing your requirements.")
+                    else:
+                        dfp = dfp.sort_values("Score", ascending=False).head(5).reset_index(drop=True)
+                        
+                        # Display results with enhanced formatting
+                        st.subheader("🎯 Top Strategy Recommendations")
+                        
+                        # Summary metrics
+                        col1, col2, col3, col4 = st.columns(4)
+                        with col1:
+                            st.metric("Strategies Found", len(dfp))
+                        with col2:
+                            avg_pop = dfp['POP'].mean()
+                            st.metric("Avg POP", f"{avg_pop:.1%}")
+                        with col3:
+                            avg_roi = dfp['ROI'].mean()
+                            st.metric("Avg ROI", f"{avg_roi:.1%}")
+                        with col4:
+                            best_score = dfp['Score'].max()
+                            st.metric("Best Score", f"{best_score:.3f}")
+                        
+                        # Enhanced results table
+                        st.dataframe(
+                            dfp.style.format({
+                                "Width":"{:.2f}", "Credit":"{:.2f}", "MaxLoss":"{:.2f}",
+                                "POP":"{:.0%}", "ROI":"{:.1%}", "Score":"{:.3f}"
+                            }),
+                            use_container_width=True,
+                            hide_index=True,
+                            column_config={
+                                "Strategy": st.column_config.TextColumn("Strategy", width="medium"),
+                                "Expiry": st.column_config.TextColumn("Expiry", width="small"),
+                                "Short": st.column_config.NumberColumn("Short Strike", format="%.2f"),
+                                "Long": st.column_config.NumberColumn("Long Strike", format="%.2f"),
+                                "Width": st.column_config.NumberColumn("Width", format="%.2f"),
+                                "Credit": st.column_config.NumberColumn("Credit", format="%.2f"),
+                                "MaxLoss": st.column_config.NumberColumn("Max Loss", format="%.2f"),
+                                "POP": st.column_config.NumberColumn("POP", format="%.0%"),
+                                "ROI": st.column_config.NumberColumn("ROI", format="%.1%"),
+                                "Score": st.column_config.NumberColumn("Score", format="%.3f"),
+                            }
+                        )
+                        
+                        # Detailed analysis for each strategy
+                        if include_analysis:
+                            st.subheader("📊 Detailed Strategy Analysis")
+                            
+                            for idx, row in dfp.iterrows():
+                                with st.expander(f"🔍 {row['Strategy']} - {row['Expiry']} (Score: {row['Score']:.3f})", expanded=(idx==0)):
+                                    col1, col2 = st.columns([2, 1])
+                                    
+                                    with col1:
+                                        st.markdown(f"""
+                                        **Strategy Details:**
+                                        - **Type**: {row['Strategy']}
+                                        - **Expiration**: {row['Expiry']}
+                                        - **Short Strike**: ${row['Short']:.2f}
+                                        - **Long Strike**: ${row['Long']:.2f}
+                                        - **Spread Width**: ${row['Width']:.2f}
+                                        """)
+                                        
+                                        st.markdown(f"""
+                                        **Risk/Reward Analysis:**
+                                        - **Credit Received**: ${row['Credit']:.2f}
+                                        - **Maximum Loss**: ${row['MaxLoss']:.2f}
+                                        - **Probability of Profit**: {row['POP']:.1%}
+                                        - **Return on Investment**: {row['ROI']:.1%}
+                                        - **Risk-Reward Ratio**: 1:{row['ROI']:.1f}
+                                        """)
+                                        
+                                        # Position sizing
+                                        if row['MaxLoss'] > 0:
+                                            max_contracts = int(max_risk / row['MaxLoss'])
+                                            st.markdown(f"""
+                                        **Position Sizing:**
+                                        - **Max Contracts**: {max_contracts} (based on ${max_risk} risk)
+                                        - **Total Credit**: ${row['Credit'] * max_contracts:.2f}
+                                        - **Total Risk**: ${row['MaxLoss'] * max_contracts:.2f}
+                                        """)
+                                    
+                                    with col2:
+                                        # Strategy-specific advice
+                                        if "Bull Put" in row['Strategy']:
+                                            st.info("""
+                                            **Bull Put Spread Tips:**
+                                            - Best for bullish outlook
+                                            - Close at 50-80% profit
+                                            - Roll if challenged
+                                            - Avoid earnings
+                                            """)
+                                        elif "Bear Call" in row['Strategy']:
+                                            st.info("""
+                                            **Bear Call Spread Tips:**
+                                            - Best for bearish outlook
+                                            - Close at 50-80% profit
+                                            - Roll if challenged
+                                            - Avoid earnings
+                                            """)
+                                        elif "Iron Condor" in row['Strategy']:
+                                            st.info("""
+                                            **Iron Condor Tips:**
+                                            - Best for neutral outlook
+                                            - Close at 50-80% profit
+                                            - Roll if challenged
+                                            - Avoid earnings
+                                            """)
+                                        
+                                        # Risk management
+                                        st.warning(f"""
+                                        **Risk Management:**
+                                        - Stop Loss: ${row['Credit'] * 2:.2f}
+                                        - Profit Target: ${row['Credit'] * 0.7:.2f}
+                                        - Max Risk: ${max_risk}
+                                        """)
+                        
+                        # Order tickets
+                        st.subheader("📋 Order Tickets")
+                        tickets = []
+                        for _, r in dfp.iterrows():
+                            if r["Strategy"] == "Bull Put Spread":
+                                tickets.append(f"SELL 1 {r['Expiry']} PUT {r['Short']:.2f}  /  BUY 1 PUT {r['Long']:.2f}  Net +${r['Credit']:.2f}")
+                            elif r["Strategy"] == "Bear Call Spread":
+                                tickets.append(f"SELL 1 {r['Expiry']} CALL {r['Short']:.2f}  /  BUY 1 CALL {r['Long']:.2f}  Net +${r['Credit']:.2f}")
+                            else:
+                                tickets.append(f"SELL 1 {r['Expiry']} IRON CONDOR  (P {r['Short'].split('/')[0].strip()}  /  C {r['Short'].split('/')[1].strip()})  Net +${r['Credit']:.2f}")
+                        
+                        st.code("\n".join(tickets))
+                        
+                        # Market condition summary
+                        st.subheader("📈 Market Condition Summary")
+                        col1, col2 = st.columns(2)
+                        with col1:
+                            st.info(f"""
+                            **Current Market Outlook**: {market_outlook}
+                            **Recommended Strategies**: {', '.join(dfp['Strategy'].unique())}
+                            **Average POP**: {avg_pop:.1%}
+                            **Average ROI**: {avg_roi:.1%}
+                            """)
+                        with col2:
+                            st.success(f"""
+                            **Risk Management Applied**:
+                            - Max Risk per Trade: ${max_risk}
+                            - Minimum POP: {min_pop}%
+                            - Minimum ROI: {min_roi}%
+                            - Strategies Analyzed: {len(picks)}
+                            """)
+
+# =============================
+# Weekly Watchlist
+# =============================
+elif page == "Weekly Watchlist":
+    st.header("📊 Advanced Weekly Watchlist Scanner")
+    st.caption("Discover high-potential stocks and ETFs with comprehensive analysis and customizable filters")
+    
+    # Main screen filters and controls
+    st.subheader("🔧 Scanner Configuration")
+    
+    # Filter controls in columns
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        st.markdown("**📋 Watchlist Selection**")
+        watchlist_type = st.selectbox(
+            "Watchlist Type",
+            ["Curated List", "Custom Tickers", "Sector ETFs", "Market Leaders"],
+            help="**Curated List**: Hand-picked mix of major stocks and ETFs\n**Custom Tickers**: Add your own tickers\n**Sector ETFs**: Focus on sector-specific ETFs\n**Market Leaders**: Top market cap companies"
+        )
+        
+        time_period = st.selectbox(
+            "Analysis Period",
+            ["5d", "1wk", "2wk", "1mo"],
+            index=0,
+            help="**5d**: Short-term momentum (1 week)\n**1wk**: Weekly momentum\n**2wk**: Bi-weekly momentum\n**1mo**: Monthly momentum"
+        )
+    
+    with col2:
+        st.markdown("**📊 Analysis Options**")
+        use_health = st.checkbox(
+            "Include Health Score", 
+            value=True, 
+            help="**Health Score**: Combines momentum (25%), profitability (25%), growth (25%), and debt metrics (25%). Higher scores indicate stronger fundamentals."
+        )
+        
+        min_market_cap = st.selectbox(
+            "Minimum Market Cap",
+            ["Any", "Micro ($300M+)", "Small ($2B+)", "Mid ($10B+)", "Large ($50B+)"],
+            index=2,
+            help="**Market Cap Filter**:\n• Micro: $300M+ (higher risk/reward)\n• Small: $2B+ (growth potential)\n• Mid: $10B+ (balanced)\n• Large: $50B+ (stability)"
+        )
+    
+    with col3:
+        st.markdown("**📈 Additional Filters**")
+        min_momentum = st.slider(
+            "Minimum Momentum (%)",
+            min_value=-50.0,
+            max_value=50.0,
+            value=-20.0,
+            step=5.0,
+            help="Filter stocks by minimum momentum performance. Negative values include declining stocks."
+        )
+        
+        min_health_score = st.slider(
+            "Minimum Health Score",
+            min_value=0.0,
+            max_value=100.0,
+            value=0.0,
+            step=5.0,
+            help="Filter stocks by minimum health score. Higher values show stronger fundamentals."
+        )
+    
+    # Custom tickers input (full width when selected)
+    if watchlist_type == "Custom Tickers":
+        st.markdown("**📝 Custom Ticker List**")
+        custom_tickers = st.text_area(
+            "Enter Tickers (one per line)",
+            value="AAPL\nMSFT\nGOOGL\nAMZN\nNVDA\nTSLA\nMETA\nNFLX\nADBE\nCRM",
+            help="**Instructions**:\n• Enter one ticker per line\n• Use uppercase (AAPL, not aapl)\n• Include major stocks and ETFs\n• Separate with new lines\n\n**Examples**:\nAAPL\nMSFT\nGOOGL\nSPY\nQQQ\nIWM"
+        )
+        custom_ticker_list = [t.strip().upper() for t in custom_tickers.split('\n') if t.strip()]
+    else:
+        custom_ticker_list = []
+    
+    # Watchlist descriptions
+    with st.expander("📚 Watchlist Descriptions & Use Cases", expanded=False):
+        st.markdown("""
+        **🎯 Curated List**: 
+        - **Best for**: General market analysis and diversified exposure
+        - **Includes**: Major ETFs (SPY, QQQ, DIA), sector ETFs (XLF, XLV, XLE), and top stocks (AAPL, MSFT, NVDA)
+        - **Use case**: Daily market overview and broad market sentiment
+        
+        **📝 Custom Tickers**: 
+        - **Best for**: Focused analysis on specific stocks or sectors
+        - **Includes**: Any stocks/ETFs you specify
+        - **Use case**: Tracking specific companies, sectors, or personal watchlists
+        
+        **🏭 Sector ETFs**: 
+        - **Best for**: Sector rotation analysis and sector-specific opportunities
+        - **Includes**: Technology (XLK), Financials (XLF), Healthcare (XLV), Energy (XLE), and ARK funds
+        - **Use case**: Identifying leading sectors and sector rotation strategies
+        
+        **👑 Market Leaders**: 
+        - **Best for**: Large-cap stability and blue-chip analysis
+        - **Includes**: Top 30 companies by market cap (AAPL, MSFT, GOOGL, AMZN, etc.)
+        - **Use case**: Conservative investing and large-cap momentum analysis
+        """)
+    
+    # Analysis period descriptions
+    with st.expander("⏰ Analysis Periods Explained", expanded=False):
+        st.markdown("""
+        **📅 5 Days (1 Week)**:
+        - **Best for**: Short-term momentum and swing trading
+        - **Shows**: Recent price action and immediate momentum
+        - **Use case**: Quick market sentiment and short-term opportunities
+        
+        **📅 1 Week**:
+        - **Best for**: Weekly momentum analysis
+        - **Shows**: Weekly performance trends
+        - **Use case**: Weekly trading strategies and momentum confirmation
+        
+        **📅 2 Weeks**:
+        - **Best for**: Medium-term momentum analysis
+        - **Shows**: Bi-weekly trends and momentum building
+        - **Use case**: Medium-term position sizing and trend confirmation
+        
+        **📅 1 Month**:
+        - **Best for**: Monthly trend analysis and position building
+        - **Shows**: Monthly performance and longer-term momentum
+        - **Use case**: Monthly portfolio rebalancing and trend analysis
+        """)
+
+    # Define watchlists
+    curated_list = ["SPY", "QQQ", "DIA", "IWM", "XLF", "XLV", "XLE", "XLK", "SMH", "ARKK",
+                    "AAPL", "MSFT", "NVDA", "AMZN", "META", "TSLA", "GOOGL", "JPM", "XOM", "UNH",
+                    "V", "PG", "HD", "MA", "DIS", "JNJ", "BRK-B", "NFLX", "ADBE", "CRM"]
+    
+    sector_etfs = ["XLK", "XLF", "XLV", "XLE", "XLI", "XLP", "XLU", "XLB", "XLRE", "XLC",
+                   "SMH", "ARKK", "ARKG", "ARKF", "ARKW", "ARKQ", "ARKX", "ARKO"]
+    
+    market_leaders = ["AAPL", "MSFT", "GOOGL", "AMZN", "NVDA", "META", "TSLA", "BRK-B", 
+                     "UNH", "JNJ", "JPM", "V", "PG", "HD", "MA", "DIS", "XOM", "PFE", 
+                     "ABBV", "KO", "PEP", "TMO", "AVGO", "COST", "MRK", "WMT", "BAC", 
+                     "LLY", "ABT", "CVX"]
+    
+    # Select ticker list based on user choice
+    if watchlist_type == "Curated List":
+        ticker_list = curated_list
+    elif watchlist_type == "Custom Tickers":
+        ticker_list = custom_ticker_list
+    elif watchlist_type == "Sector ETFs":
+        ticker_list = sector_etfs
+    else:  # Market Leaders
+        ticker_list = market_leaders
+
+    @st.cache_data(ttl=600)
+    def _ww_fetch_fundamentals(ticker: str) -> dict:
+        """Fetch fundamental data with enhanced error handling"""
+        out = {"market_cap": np.nan, "profitMargins": np.nan, "returnOnEquity": np.nan,
+               "revenueGrowth": np.nan, "debtToEquity": np.nan, "beta": np.nan, "volume": np.nan}
+        try:
+            tk = yf.Ticker(ticker.upper().strip())
+            
+            # Try fast_info first
+            fi = getattr(tk, "fast_info", None)
+            if fi and getattr(fi, "market_cap", None) is not None:
+                out["market_cap"] = float(fi.market_cap)
+            if fi and getattr(fi, "volume", None) is not None:
+                out["volume"] = float(fi.volume)
+            
+            # Get detailed info
+            try:
+                info = tk.get_info()
+                for k in ["profitMargins", "returnOnEquity", "revenueGrowth", "debtToEquity", "marketCap", "beta"]:
+                    v = info.get(k)
+                    if v is not None:
+                        if k == "marketCap" and np.isnan(out["market_cap"]):
+                            out["market_cap"] = float(v)
+                        elif k in out:
+                            out[k] = float(v)
+            except Exception:
+                pass
+                
+        except Exception as e:
+            pass  # Silently handle errors for individual tickers
+        return out
+
+    def _bucket(mc: float) -> str:
+        """Categorize stocks by market cap"""
+        if not isinstance(mc, (int, float)) or np.isnan(mc):
+            return "Unknown"
+        if mc >= 200e9: return "Mega (≥$200B)"
+        if mc >= 50e9:  return "Large ($50–200B)"
+        if mc >= 10e9:  return "Mid ($10–50B)"
+        if mc >= 2e9:   return "Small ($2–10B)"
+        if mc >= 3e8:   return "Micro ($0.3–2B)"
+        return "Nano (<$0.3B)"
+
+    def _get_market_cap_filter():
+        """Get market cap filter value"""
+        if min_market_cap == "Any": return 0
+        elif min_market_cap == "Micro ($300M+)": return 3e8
+        elif min_market_cap == "Small ($2B+)": return 2e9
+        elif min_market_cap == "Mid ($10B+)": return 10e9
+        elif min_market_cap == "Large ($50B+)": return 50e9
+        return 0
+
+    # Progress bar for data fetching
+    progress_bar = st.progress(0)
+    status_text = st.empty()
+    
+    rows = []
+    total_tickers = len(ticker_list)
+    
+    for i, t in enumerate(ticker_list):
+        status_text.text(f"Analyzing {t}... ({i+1}/{total_tickers})")
+        progress_bar.progress((i + 1) / total_tickers)
+        
+        try:
+            # Fetch price history
+            h = fetch_price_history(t, period=time_period, interval="1d")
+            if h.empty or len(h) < 2:
+                continue
+                
+            # Calculate momentum
+            mom_period = (h["Close"].iloc[-1] / h["Close"].iloc[0]) - 1
+            
+            # Fetch fundamentals
+            f = _ww_fetch_fundamentals(t)
+            mcap = f.get("market_cap", np.nan)
+            pm = f.get("profitMargins", np.nan)
+            roe = f.get("returnOnEquity", np.nan)
+            rg = f.get("revenueGrowth", np.nan)
+            de = f.get("debtToEquity", np.nan)
+            beta = f.get("beta", np.nan)
+            volume = f.get("volume", np.nan)
+            
+            # Apply market cap filter
+            if mcap < _get_market_cap_filter():
+                continue
+            
+            # Apply momentum filter
+            if mom_period < min_momentum / 100:
+                continue
+            
+            # Calculate health score
+            score = np.nan
+            if use_health:
+                comps, weights = [], []
+                if not np.isnan(mom_period): comps.append(mom_period); weights.append(0.25)
+                if not np.isnan(pm): comps.append(pm); weights.append(0.25)
+                if not np.isnan(roe): comps.append(roe); weights.append(0.25)
+                if not np.isnan(rg): comps.append(rg); weights.append(0.25)
+                if weights:
+                    base_score = sum(c*w for c, w in zip(comps, weights))
+                    penalty = (min(max(de, 0.0), 5.0) * 0.10) if not np.isnan(de) else 0.0
+                    score = 100.0*(base_score - penalty)
+            
+            # Apply health score filter
+            if use_health and not np.isnan(score) and score < min_health_score:
+                continue
+            
+            # Get ticker description
+            description = ticker_descriptions.get(t, 'N/A')
+            
+            rows.append({
+                "Ticker": t,
+                "Description": description,
+                f"{time_period} %": mom_period,
+                "Market Cap": mcap,
+                "Cap Bucket": _bucket(mcap),
+                "Profit Margin": pm,
+                "ROE": roe,
+                "Revenue Growth": rg,
+                "Debt/Equity": de,
+                "Beta": beta,
+                "Volume": volume,
+                "Health Score": score,
+            })
+            
+        except Exception as e:
+            pass  # Silently handle errors for individual tickers
+            continue
+    
+    # Clear progress indicators
+    progress_bar.empty()
+    status_text.empty()
+    
+    # Create and display results
+    if not rows:
+        st.warning("No stocks found matching your criteria. Try adjusting your filters.")
+    else:
+        dfw = pd.DataFrame(rows)
+        
+        # Sorting options
+        col1, col2 = st.columns([1, 2])
+        with col1:
+            sort_by = st.selectbox(
+                "Sort by",
+                ["Health Score", f"{time_period} %", "Market Cap", "ROE", "Revenue Growth"],
+                index=0 if use_health else 1
+            )
+        with col2:
+            sort_ascending = st.checkbox("Sort ascending", value=False)
+        
+        # Sort dataframe
+        sort_col = sort_by.replace(" ", "") if sort_by != "Health Score" else "Health Score"
+        dfw = dfw.sort_values(sort_col, ascending=sort_ascending).reset_index(drop=True)
+        
+        # Add external links
+        dfw["Yahoo"] = dfw["Ticker"].apply(lambda x: f"https://finance.yahoo.com/quote/{x}")
+        dfw["Finviz"] = dfw["Ticker"].apply(lambda x: f"https://finviz.com/quote.ashx?t={x}")
+        dfw["Chart"] = dfw["Ticker"].apply(lambda x: f"https://www.tradingview.com/symbols/{x}")
+        
+        # Display results
+        st.subheader(f"📈 Watchlist Results ({len(dfw)} stocks)")
+        
+        # Results summary with descriptions
+        with st.expander("📊 Results Summary & Metrics Explained", expanded=True):
+            col1, col2, col3, col4 = st.columns(4)
+            with col1:
+                avg_momentum = dfw[f"{time_period} %"].mean()
+                st.metric("Avg Momentum", f"{avg_momentum:.2f}%")
+                st.caption("Average momentum across all stocks")
+            with col2:
+                avg_health = dfw["Health Score"].mean()
+                st.metric("Avg Health Score", f"{avg_health:.1f}")
+                st.caption("Average fundamental health score")
+            with col3:
+                top_performers = len(dfw[dfw[f"{time_period} %"] > 0])
+                st.metric("Positive Momentum", f"{top_performers}/{len(dfw)}")
+                st.caption("Stocks with positive momentum")
+            with col4:
+                high_health = len(dfw[dfw["Health Score"] > 50])
+                st.metric("High Health Score", f"{high_health}/{len(dfw)}")
+                st.caption("Stocks with strong fundamentals")
+            
+            # Additional insights
+            st.markdown("**💡 Key Insights:**")
+            if avg_momentum > 0:
+                st.info(f"✅ **Positive Market Sentiment**: Average momentum is {avg_momentum:.2f}%, indicating overall positive market sentiment")
+            else:
+                st.warning(f"⚠️ **Market Weakness**: Average momentum is {avg_momentum:.2f}%, indicating market weakness")
+            
+            if avg_health > 50:
+                st.success(f"🏥 **Strong Fundamentals**: Average health score is {avg_health:.1f}, indicating strong fundamental quality")
+            else:
+                st.info(f"📊 **Mixed Fundamentals**: Average health score is {avg_health:.1f}, review individual stocks carefully")
+        
+        # Main dataframe with descriptions
+        st.markdown("**📋 Detailed Stock Analysis**")
+        st.info("💡 **How to read this table**:\n• **Momentum %**: Price change over the selected period\n• **Health Score**: Combined fundamental strength (0-100)\n• **Market Cap**: Company size in dollars\n• **Profit Margin**: Net income as % of revenue\n• **ROE**: Return on equity (profitability)\n• **Revenue Growth**: Year-over-year growth\n• **Debt/Equity**: Financial leverage (lower is better)\n• **Beta**: Volatility vs market (1.0 = market average)")
+        
+        st.dataframe(
+            dfw,
+            use_container_width=True,
+            hide_index=True,
+            column_config={
+                "Ticker": st.column_config.TextColumn("Ticker", width="small", help="Stock symbol"),
+                "Description": st.column_config.TextColumn("Description", width="large", help="Brief company description"),
+                f"{time_period} %": st.column_config.NumberColumn(f"{time_period} %", format="%.2f%%", help="Price change over selected period"),
+                "Market Cap": st.column_config.NumberColumn("Market Cap", format="%.0f", help="Total company value in dollars"),
+                "Cap Bucket": st.column_config.TextColumn("Cap Bucket", width="medium", help="Market cap category"),
+                "Profit Margin": st.column_config.NumberColumn("Profit Margin", format="%.2f%%", help="Net profit as % of revenue"),
+                "ROE": st.column_config.NumberColumn("ROE", format="%.2f%%", help="Return on equity - profitability measure"),
+                "Revenue Growth": st.column_config.NumberColumn("Revenue Growth", format="%.2f%%", help="Year-over-year revenue growth"),
+                "Debt/Equity": st.column_config.NumberColumn("Debt/Equity", format="%.2f", help="Financial leverage ratio"),
+                "Beta": st.column_config.NumberColumn("Beta", format="%.2f", help="Volatility vs market average"),
+                "Volume": st.column_config.NumberColumn("Volume", format="%.0f", help="Trading volume"),
+                "Health Score": st.column_config.NumberColumn("Health Score", format="%.1f", help="Combined fundamental strength (0-100)"),
+                "Yahoo": st.column_config.LinkColumn("Yahoo", display_text="📊", help="View on Yahoo Finance"),
+                "Finviz": st.column_config.LinkColumn("Finviz", display_text="📈", help="View on Finviz"),
+                "Chart": st.column_config.LinkColumn("Chart", display_text="📉", help="View on TradingView"),
+            },
+        )
+        
+        # Export options with descriptions
+        st.markdown("**📤 Export & Save Results**")
+        st.info("💡 **Export Options**:\n• **Excel Export**: Download full analysis with all metrics\n• **Use for**: Portfolio tracking, further analysis, sharing with team\n• **File includes**: All stock data, metrics, and analysis results")
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            if st.button("📥 Export Full Analysis to Excel"):
+                excel_data = make_excel({"Weekly_Watchlist": dfw.drop(["Yahoo", "Finviz", "Chart"], axis=1)})
+                st.download_button(
+                    label="Download Excel File",
+                    data=excel_data,
+                    file_name=f"weekly_watchlist_analysis_{datetime.now().strftime('%Y%m%d')}.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                )
+        
+        with col2:
+            st.download_button(
+                "⬇️ Download Simple List", 
+                data=make_excel({"Weekly_Watchlist": dfw[["Ticker", "Description", f"{time_period} %", "Health Score", "Market Cap"]]}), 
+                file_name=f"weekly_watchlist_simple_{datetime.now().strftime('%Y%m%d')}.xlsx", 
+                key="ww_xls_simple"
+            )
+        
+        # Visualizations with descriptions
+        st.markdown("**📊 Market Analysis Charts**")
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            st.subheader("📊 Market Cap Distribution")
+            st.caption("Shows the distribution of stocks across different market cap categories")
+            by_cap = dfw["Cap Bucket"].value_counts().rename_axis("Bucket").reset_index(name="Count")
+            cap_fig = go.Figure()
+            cap_fig.add_trace(go.Bar(x=by_cap["Bucket"], y=by_cap["Count"], marker_color='lightblue'))
+            cap_fig.update_layout(
+                height=300, 
+                xaxis_title="Market Cap Bucket", 
+                yaxis_title="Number of Stocks",
+                title="Stock Distribution by Market Cap"
+            )
+            st.plotly_chart(cap_fig, use_container_width=True)
+            
+            # Market cap insights
+            if len(by_cap) > 0:
+                dominant_cap = by_cap.iloc[0]["Bucket"]
+                st.info(f"💡 **Market Focus**: {dominant_cap} stocks dominate this watchlist")
+        
+        with col2:
+            st.subheader("📈 Momentum vs Health Score")
+            st.caption("Scatter plot showing relationship between momentum and fundamental health")
+            scatter_fig = go.Figure()
+            scatter_fig.add_trace(go.Scatter(
+                x=dfw[f"{time_period} %"], 
+                y=dfw["Health Score"],
+                mode='markers+text',
+                text=dfw["Ticker"],
+                textposition="top center",
+                marker=dict(size=8, color=dfw[f"{time_period} %"], colorscale='RdYlGn')
+            ))
+            scatter_fig.update_layout(
+                height=300,
+                xaxis_title=f"{time_period} Momentum (%)",
+                yaxis_title="Health Score",
+                title="Momentum vs Fundamental Health",
+                showlegend=False
+            )
+            st.plotly_chart(scatter_fig, use_container_width=True)
+            
+            # Scatter plot insights
+            high_momentum_high_health = len(dfw[(dfw[f"{time_period} %"] > 0) & (dfw["Health Score"] > 50)])
+            st.success(f"🎯 **Best Opportunities**: {high_momentum_high_health} stocks have both positive momentum and strong fundamentals")
+        
+        # Top recommendations with detailed analysis
+        st.subheader("🎯 Top Recommendations & Analysis")
+        st.info("💡 **How to use these recommendations**:\n• **Top 5 stocks** are ranked by your selected sorting criteria\n• **Expand each stock** for detailed metrics and analysis\n• **Use the quick analysis** to understand momentum and fundamental strength\n• **Check external links** for additional research")
+        
+        top_stocks = dfw.head(5)
+        
+        for idx, row in top_stocks.iterrows():
+            with st.expander(f"#{idx+1} {row['Ticker']} - {row['Description']}", expanded=idx==0):
+                col1, col2, col3 = st.columns(3)
+                with col1:
+                    st.metric(f"{time_period} Momentum", f"{row[f'{time_period} %']:.2f}%")
+                    st.caption("Price change over period")
+                    st.metric("Health Score", f"{row['Health Score']:.1f}")
+                    st.caption("Fundamental strength (0-100)")
+                with col2:
+                    st.metric("Market Cap", f"${row['Market Cap']/1e9:.1f}B")
+                    st.caption("Company size")
+                    st.metric("ROE", f"{row['ROE']:.1f}%")
+                    st.caption("Return on equity")
+                with col3:
+                    st.metric("Profit Margin", f"{row['Profit Margin']:.1f}%")
+                    st.caption("Net profit margin")
+                    st.metric("Beta", f"{row['Beta']:.2f}")
+                    st.caption("Volatility vs market")
+                
+                # Detailed analysis
+                momentum_status = "🟢 Bullish" if row[f'{time_period} %'] > 0 else "🔴 Bearish"
+                health_status = "🟢 Strong" if row['Health Score'] > 50 else "🟡 Moderate" if row['Health Score'] > 25 else "🔴 Weak"
+                
+                # Risk assessment
+                risk_level = "Low" if row['Beta'] < 0.8 else "Medium" if row['Beta'] < 1.2 else "High"
+                risk_icon = "🟢" if risk_level == "Low" else "🟡" if risk_level == "Medium" else "🔴"
+                
+                # Investment recommendation
+                if row[f'{time_period} %'] > 0 and row['Health Score'] > 50:
+                    recommendation = "🟢 **Strong Buy**: Positive momentum with strong fundamentals"
+                elif row[f'{time_period} %'] > 0:
+                    recommendation = "🟡 **Consider**: Positive momentum, review fundamentals"
+                elif row['Health Score'] > 50:
+                    recommendation = "🟡 **Watch**: Strong fundamentals, wait for momentum"
+                else:
+                    recommendation = "🔴 **Avoid**: Weak momentum and fundamentals"
+                
+                st.info(f"**Quick Analysis**: {momentum_status} momentum, {health_status} fundamentals, {risk_icon} {risk_level} risk")
+                st.success(f"**Investment Recommendation**: {recommendation}")
+                
+                # External links
+                col1, col2, col3 = st.columns(3)
+                with col1:
+                    st.link_button("📊 Yahoo Finance", f"https://finance.yahoo.com/quote/{row['Ticker']}")
+                with col2:
+                    st.link_button("📈 Finviz Analysis", f"https://finviz.com/quote.ashx?t={row['Ticker']}")
+                with col3:
+                    st.link_button("📉 TradingView Chart", f"https://www.tradingview.com/symbols/{row['Ticker']}")
+
+        # Market cap breakdown
+        with st.expander("📊 Top 3 Stocks by Market Cap Category", expanded=False):
+            st.info("💡 **Market Cap Categories**:\n• **Mega**: $200B+ (Blue chips, stability)\n• **Large**: $50-200B (Established companies)\n• **Mid**: $10-50B (Growth companies)\n• **Small**: $2-10B (Small caps, higher risk/reward)\n• **Micro**: $300M-2B (Penny stocks, speculative)")
+            
+            for bucket in by_cap["Bucket"].tolist():
+                top = dfw[dfw["Cap Bucket"] == bucket].head(3).copy()
+                if not top.empty:
+                    st.markdown(f"**{bucket}**")
+                    st.dataframe(
+                        top[["Ticker", f"{time_period} %", "Health Score", "Profit Margin", "ROE", "Revenue Growth", "Market Cap"]],
+                        use_container_width=True,
+                        hide_index=True,
+                        column_config={
+                            f"{time_period} %": st.column_config.NumberColumn(f"{time_period} %", format="%.2f%%"),
+                            "Health Score": st.column_config.NumberColumn("Health Score", format="%.1f"),
+                            "Profit Margin": st.column_config.NumberColumn("Profit Margin", format="%.2f%%"),
+                            "ROE": st.column_config.NumberColumn("ROE", format="%.2f%%"),
+                            "Revenue Growth": st.column_config.NumberColumn("Revenue Growth", format="%.2f%%"),
+                            "Market Cap": st.column_config.NumberColumn("Market Cap", format="%.0f"),
+                        },
+                    )
+
+
+
+
+# =============================
+# AI Next Year Prediction
+# =============================
+elif page == "AI Next Year Prediction":
+    st.header("🤖 AI Stock Prediction & Analysis")
+    st.caption("Intraday‑aware forecast for the next 12 months using simple, transparent models. Educational use only.")
+
+    c1, c2, c3, c4 = st.columns([1.2,1,1,1])
+    with c1:
+        symp = st.text_input("Ticker", value="AAPL", key="pred_sym", help="Example: AAPL, MSFT, NVDA, SPY")
+    with c2:
+        method = st.selectbox("Model", ["Linear Trend", "Polynomial (2)", "EMA (90‑day)"], key="pred_method")
+    with c3:
+        horizon_m = st.number_input("Horizon (months)", 6, 36, 12, 1, key="pred_h")
+    with c4:
+        run_pred = st.button("🔮 Run Prediction", type="primary")
+    refresh_pred = st.button("🔄 Refresh Data")
+
+    import numpy as np
+    import pandas as pd
+
+    def _intraday_last(t):
+        try:
+            fi = getattr(yf.Ticker(t), "fast_info", None)
+            if fi and getattr(fi, "last_price", None) is not None:
+                return float(fi.last_price)
+        except Exception:
+            pass
+        return np.nan
+
+    @st.cache_data(ttl=180)
+    def _hist_monthly(t):
+        try:
+            df = fetch_price_history(t, period="10y", interval="1mo")
+            if df is not None and not df.empty:
+                df = df[["Close"]].dropna().copy()
+                df.index = pd.to_datetime(df.index)
+                return df
+        except Exception:
+            pass
+        return pd.DataFrame()
+
+    if (run_pred or refresh_pred) and symp.strip():
+        ticker = symp.strip().upper()
+        with st.spinner("Fetching data & fitting model..."):
+            hist = _hist_monthly(ticker)
+            if hist.empty or len(hist) < 12:
+                st.warning("Not enough monthly history to forecast. Try another symbol.")
+            else:
+                df = hist.copy()
+                df["t"] = np.arange(len(df))
+                y = df["Close"].values.astype(float)
+                t = df["t"].values.astype(float)
+
+                # Fit chosen model
+                try:
+                    if method == "Linear Trend":
+                        # y = a + b*t
+                        b, a = np.polyfit(t, y, 1)
+                        f = lambda tt: a + b*tt
+                    elif method == "Polynomial (2)":
+                        # y = a + b*t + c*t^2
+                        c, b, a = np.polyfit(t, y, 2)
+                        f = lambda tt: a + b*tt + c*(tt**2)
+                    else:  # EMA (90‑day) approximated on monthly closes
+                        ema = df["Close"].ewm(span=3, adjust=False).mean()  # 3 months ~ 90 days
+                        a, b = np.polyfit(t, ema.values, 1)
+                        f = lambda tt: a + b*tt
+                except Exception as e:
+                    st.error(f"Model fit failed: {e}")
+                    f = None
+
+                # Forecast next horizon
+                if f is not None:
+                    last_t = t[-1]
+                    future_t = np.arange(last_t+1, last_t+1+horizon_m)
+                    pred_series = pd.Series(f(future_t), index=pd.date_range(df.index[-1] + pd.offsets.MonthEnd(1), periods=horizon_m, freq="M"))
+                    current = _intraday_last(ticker)
+                    if np.isnan(current):
+                        current = float(df["Close"].iloc[-1])
+
+                    # Display metrics
+                    colm, colr = st.columns([1,1])
+                    with colm:
+                        st.metric("Last Price", f"${current:,.2f}")
+                        st.metric(f"{horizon_m}‑mo Forecast", f"${pred_series.iloc[-1]:,.2f}")
+                    with colr:
+                        total_ret = (pred_series.iloc[-1] / current - 1.0)
+                        ann = (1+total_ret)**(12.0/horizon_m) - 1.0 if horizon_m>0 else np.nan
+                        st.metric("Total Return (est.)", f"{total_ret*100:,.1f}%")
+                        st.metric("Annualized (est.)", f"{ann*100:,.1f}%")
+
+                    # Chart
+                    fig = go.Figure()
+                    fig.add_trace(go.Scatter(x=df.index, y=df["Close"], name="History", mode="lines"))
+                    fig.add_trace(go.Scatter(x=pred_series.index, y=pred_series.values, name="Forecast", mode="lines"))
+                    fig.update_layout(height=420, title=f"{ticker} — {horizon_m}‑month forecast ({method})")
+                    st.plotly_chart(fig, use_container_width=True)
+
+                    # Table
+                    out = pd.DataFrame({
+                        "Date": list(df.index[-6:]) + list(pred_series.index),
+                        "Price": list(df["Close"].tail(6).values) + list(pred_series.values)
+                    })
+                    st.dataframe(out, use_container_width=True, hide_index=True)
+
+                    # Links
+                    def _yahoo_sym(t):  # Yahoo uses '-' for classes
+                        return t.replace('.', '-')
+                    def _finviz_sym(t): # Finviz uses '.' for classes
+                        return t.replace('-', '.')
+                    st.link_button("Yahoo Finance", f"https://finance.yahoo.com/quote/{_yahoo_sym(ticker)}")
+                    st.link_button("Finviz", f"https://finviz.com/quote.ashx?t={_finviz_sym(ticker)}")
+
+
+# =============================
+# Intrinsic Value Calculation
+# =============================
+elif page == "Intrinsic Value":
+    st.header("💎 Intrinsic Value Calculator")
+    st.caption("DCF, EPS Growth, and Dividend Discount (DDM). Uses public data when available; inputs are editable.")
+
+    c1, c2, c3 = st.columns([1.2,1,1])
+    with c1:
+        symv = st.text_input("Ticker", value="AAPL", key="iv_sym")
+    with c2:
+        method = st.selectbox("Method", ["Discounted Cash Flow (DCF)", "EPS Growth Model", "Dividend Discount (DDM)"], key="iv_method")
+    with c3:
+        run_iv = st.button("🧮 Calculate", type="primary")
+    refresh_iv = st.button("🔄 Refresh Data")
+
+    import numpy as np
+    import pandas as pd
+
+    @st.cache_data(ttl=300)
+    def _info_fast(t):
+        try:
+            tk = yf.Ticker(t)
+            fi = getattr(tk, "fast_info", None)
+            return tk, fi
+        except Exception:
+            return yf.Ticker(t), None
+
+    @st.cache_data(ttl=300)
+    def _fundamentals(t):
+        tk = yf.Ticker(t)
+        try:
+            cf = tk.cashflow or pd.DataFrame()
+        except Exception:
+            cf = pd.DataFrame()
+        try:
+            income = tk.financials or pd.DataFrame()
+        except Exception:
+            income = pd.DataFrame()
+        try:
+            div = tk.dividends or pd.Series(dtype=float)
+        except Exception:
+            div = pd.Series(dtype=float)
+        return cf, income, div
+
+    if (run_iv or refresh_iv) and symv.strip():
+        ticker = symv.strip().upper()
+        with st.spinner("Fetching fundamentals & valuing..."):
+            tk, fi = _info_fast(ticker)
+            cf, income, dividends = _fundamentals(ticker)
+
+            last = None
+            try:
+                if fi and getattr(fi, "last_price", None) is not None:
+                    last = float(fi.last_price)
+            except Exception:
+                pass
+            if last is None:
+                try:
+                    hist = fetch_price_history(ticker, period="6mo", interval="1d")
+                    last = float(hist["Close"].iloc[-1])
+                except Exception:
+                    last = float("nan")
+
+            # Common inputs
+            colA, colB, colC = st.columns(3)
+            with colA:
+                discount = st.number_input("Discount Rate (WACC) %", 5.0, 20.0, 10.0, 0.5) / 100.0
+            with colB:
+                term_growth = st.number_input("Terminal Growth %", 0.0, 5.0, 2.0, 0.25) / 100.0
+            with colC:
+                shares_out = st.number_input("Shares Outstanding (B)", 0.0, 100.0, 1.0, 0.1) * 1_000_000_000
+
+            st.metric("Last Price", f"${last:,.2f}")
+
+            val = None
+            details = {}
+
+            if method == "Discounted Cash Flow (DCF)":
+                # Approximate FCF from cashflow statement: 'Free Cash Flow' if present; else OperatingCF - Capex
+                try:
+                    fcf_series = None
+                    if not cf.empty:
+                        if "Free Cash Flow" in cf.index:
+                            fcf_series = cf.loc["Free Cash Flow"].dropna()
+                        elif "Total Cash From Operating Activities" in cf.index and "Capital Expenditures" in cf.index:
+                            fcf_series = (cf.loc["Total Cash From Operating Activities"] - cf.loc["Capital Expenditures"]).dropna()
+                    if fcf_series is not None and len(fcf_series) >= 3:
+                        fcf0 = float(fcf_series.iloc[0])
+                        g = st.number_input("FCF Growth % (Years 1‑5)", -20.0, 30.0, 8.0, 0.5) / 100.0
+                        fcf = [fcf0 * ((1+g)**i) for i in range(1,6)]
+                        # fade growth years 6‑10
+                        g2 = g/2.0
+                        fcf += [fcf[-1] * ((1+g2)**i) for i in range(1,6)]
+                        years = list(range(1,11))
+                        disc = [(1+discount)**y for y in years]
+                        pv = sum(f/d for f,d in zip(fcf, disc))
+                        tv = (fcf[-1] * (1+term_growth)) / (discount - term_growth) if discount>term_growth else float("nan")
+                        pv_tv = tv / ((1+discount)**10) if tv==tv else float("nan")
+                        equity = pv + pv_tv
+                        val = equity / shares_out if shares_out>0 else float("nan")
+                        details = {"FCF0": fcf0, "PV 1‑10": pv, "Terminal Value": tv, "PV(TV)": pv_tv, "Equity (B)": equity/1e9}
+                    else:
+                        st.info("⚠️ Not enough FCF data; input a manual FCF instead.")
+                        fcf0 = st.number_input("Manual FCF (B)", 0.0, 200.0, 10.0, 0.5) * 1_000_000_000
+                        g = st.number_input("FCF Growth % (Years 1‑5)", -20.0, 30.0, 8.0, 0.5) / 100.0
+                        f1 = [fcf0 * ((1+g)**i) for i in range(1,6)]
+                        g2 = g/2.0
+                        f2 = [f1[-1] * ((1+g2)**i) for i in range(1,6)]
+                        fcf = f1 + f2
+                        years = list(range(1,11))
+                        disc = [(1+discount)**y for y in years]
+                        pv = sum(f/d for f,d in zip(fcf, disc))
+                        tv = (fcf[-1] * (1+term_growth)) / (discount - term_growth) if discount>term_growth else float("nan")
+                        pv_tv = tv / ((1+discount)**10) if tv==tv else float("nan")
+                        equity = pv + pv_tv
+                        val = equity / shares_out if shares_out>0 else float("nan")
+                        details = {"FCF0": fcf0, "PV 1‑10": pv, "Terminal Value": tv, "PV(TV)": pv_tv, "Equity (B)": equity/1e9}
+                except Exception as e:
+                    st.error(f"DCF error: {e}")
+
+            elif method == "EPS Growth Model":
+                # Use trailing/forward EPS if available
+                try:
+                    eps_t = None
+                    pe_now = None
+                    try:
+                        info = tk.info
+                        if isinstance(info, dict):
+                            eps_t = info.get("trailingEps", None)
+                            pe_now = info.get("trailingPE", None)
+                    except Exception:
+                        pass
+                    eps0 = st.number_input("Starting EPS", 0.0, 200.0, float(eps_t or 6.0), 0.1)
+                    g = st.number_input("EPS Growth % (10y)", -20.0, 40.0, 10.0, 0.5) / 100.0
+                    pe_term = st.number_input("Terminal P/E", 5.0, 40.0, float(pe_now or 20.0), 0.5)
+                    eps10 = eps0 * ((1+g)**10)
+                    price10 = eps10 * pe_term
+                    pv = price10 / ((1+discount)**10)
+                    val = pv
+                    details = {"EPS0": eps0, "EPS10": eps10, "Term P/E": pe_term, "PV Price": pv}
+                except Exception as e:
+                    st.error(f"EPS model error: {e}")
+
+            else:  # Dividend Discount (DDM) Gordon
+                try:
+                    div0 = 0.0
+                    try:
+                        if not dividends.empty:
+                            div0 = float(dividends.iloc[-1]) * 4  # approx yearly from last quarterly
+                    except Exception:
+                        pass
+                    div_ann = st.number_input("Annual Dividend ($)", 0.0, 50.0, float(div0 or 1.0), 0.05)
+                    g = st.number_input("Dividend Growth %", 0.0, 10.0, 3.0, 0.25) / 100.0
+                    if discount <= g:
+                        st.warning("Discount must exceed growth for DDM.")
+                        val = float("nan")
+                    else:
+                        val = div_ann * (1+g) / (discount - g)
+                        details = {"Div": div_ann, "g": g, "r": discount}
+                except Exception as e:
+                    st.error(f"DDM error: {e}")
+
+            if val is not None:
+                col1, col2 = st.columns([1,1])
+                with col1:
+                    st.metric("Intrinsic Value / Share", f"${val:,.2f}")
+                with col2:
+                    delta = (val/last - 1.0) if last==last and last>0 else float("nan")
+                    st.metric("Upside vs Price", f"{delta*100:,.1f}%")
+
+                # Show assumptions
+                st.subheader("Assumptions & Outputs")
+                df_out = pd.DataFrame({"Metric": list(details.keys()), "Value": list(details.values())})
+                st.dataframe(df_out, use_container_width=True, hide_index=True)
+
+                # Links
+                def _yahoo_sym(t):  # Yahoo uses '-' for classes
+                    return t.replace('.', '-')
+                def _finviz_sym(t): # Finviz uses '.' for classes
+                    return t.replace('-', '.')
+                st.link_button("Yahoo Finance", f"https://finance.yahoo.com/quote/{_yahoo_sym(ticker)}")
+                st.link_button("Finviz", f"https://finviz.com/quote.ashx?t={_finviz_sym(ticker)}")
+
+# =============================
+# Daily Scanner
+# =============================
+elif page == "Daily Scanner":
+    st.header("📊 Daily Momentum Scanner")
+    st.caption("Discover stocks with unusual momentum, volume, and technical patterns")
+    
+    # Scanner options
+    col1, col2 = st.columns([2, 1])
+    with col1:
+        scan_type = st.selectbox(
+            "Scanner Type",
+            [
+                "Momentum Movers (5%+ gainers)",
+                "Volume Spikes (2x+ average)",
+                "Breakout Candidates",
+                "Gap Up/Down Scanner",
+                "Relative Strength Leaders"
+            ],
+            key="scan_type",
+            help="Momentum: Stocks gaining 5%+ today. Volume: Trading 2x+ normal volume. Breakout: Above 20MA with momentum. Gap: 3%+ moves from previous close. RSI: Above both 20MA & 50MA."
+        )
+    with col2:
+        min_market_cap = st.selectbox(
+            "Min Market Cap",
+            ["$100M+", "$500M+", "$1B+", "$5B+", "$10B+"],
+            index=2,
+            key="min_cap",
+            help="Market Cap = Total company value (shares × price). Higher caps = larger, more established companies."
+        )
+    
+    # Market cap filter
+    cap_filters = {
+        "$100M+": 100e6,
+        "$500M+": 500e6,
+        "$1B+": 1e9,
+        "$5B+": 5e9,
+        "$10B+": 10e9
+    }
+    min_cap_value = cap_filters[min_market_cap]
+    
+    # Predefined watchlists for scanning
+    watchlists = {
+        "SP500": ["AAPL", "MSFT", "GOOGL", "AMZN", "NVDA", "META", "TSLA", "BRK-B", "UNH", "JNJ", "JPM", "V", "PG", "HD", "MA", "DIS", "PYPL", "NFLX", "ADBE", "CRM"],
+        "Tech Leaders": ["AAPL", "MSFT", "GOOGL", "AMZN", "NVDA", "META", "TSLA", "NFLX", "ADBE", "CRM", "PYPL", "INTC", "AMD", "ORCL", "CSCO"],
+        "Growth Stocks": ["NVDA", "TSLA", "META", "NFLX", "ADBE", "CRM", "PYPL", "AMD", "ZM", "SHOP", "SQ", "ROKU", "CRWD", "OKTA", "DOCU"],
+        "Large Caps": ["AAPL", "MSFT", "GOOGL", "AMZN", "NVDA", "META", "TSLA", "BRK-B", "UNH", "JNJ", "JPM", "V", "PG", "HD", "MA"]
+    }
+    
+    # Ticker descriptions
+    ticker_descriptions = {
+        # Major ETFs
+        "SPY": "SPDR S&P 500 ETF - Tracks the S&P 500 index (500 largest US companies)",
+        "QQQ": "Invesco QQQ Trust - Tracks NASDAQ-100 (top 100 non-financial NASDAQ stocks)",
+        "DIA": "SPDR Dow Jones Industrial Average ETF - Tracks the Dow Jones Industrial Average",
+        "IWM": "iShares Russell 2000 ETF - Tracks small-cap US stocks",
+        "XLK": "Technology Select Sector SPDR Fund - Technology sector ETF",
+        "XLF": "Financial Select Sector SPDR Fund - Financial sector ETF",
+        "XLV": "Health Care Select Sector SPDR Fund - Healthcare sector ETF",
+        "XLE": "Energy Select Sector SPDR Fund - Energy sector ETF",
+        "XLI": "Industrial Select Sector SPDR Fund - Industrial sector ETF",
+        "XLP": "Consumer Staples Select Sector SPDR Fund - Consumer staples sector ETF",
+        "XLU": "Utilities Select Sector SPDR Fund - Utilities sector ETF",
+        "XLB": "Materials Select Sector SPDR Fund - Materials sector ETF",
+        "XLRE": "Real Estate Select Sector SPDR Fund - Real estate sector ETF",
+        "XLC": "Communication Services Select Sector SPDR Fund - Communication services sector ETF",
+        "SMH": "VanEck Vectors Semiconductor ETF - Semiconductor industry ETF",
+        "ARKK": "ARK Innovation ETF - Disruptive innovation companies",
+        
+        # Major Tech Companies
+        "AAPL": "Apple Inc. - Consumer electronics, software, and services",
+        "MSFT": "Microsoft Corporation - Software, cloud computing, and technology",
+        "GOOGL": "Alphabet Inc. (Google) - Internet services, advertising, and technology",
+        "AMZN": "Amazon.com Inc. - E-commerce, cloud computing, and digital services",
+        "NVDA": "NVIDIA Corporation - Graphics processing units and AI computing",
+        "META": "Meta Platforms Inc. - Social media and digital advertising",
+        "TSLA": "Tesla Inc. - Electric vehicles, energy storage, and solar panels",
+        "NFLX": "Netflix Inc. - Streaming entertainment and content production",
+        "ADBE": "Adobe Inc. - Creative software and digital media solutions",
+        "CRM": "Salesforce Inc. - Customer relationship management software",
+        "PYPL": "PayPal Holdings Inc. - Digital payments and financial services",
+        "INTC": "Intel Corporation - Semiconductor manufacturing and computing",
+        "AMD": "Advanced Micro Devices Inc. - Semiconductor and computing technology",
+        "ORCL": "Oracle Corporation - Database software and cloud services",
+        "CSCO": "Cisco Systems Inc. - Networking hardware and software",
+        
+        # Growth Companies
+        "ZM": "Zoom Video Communications Inc. - Video conferencing and communication",
+        "SHOP": "Shopify Inc. - E-commerce platform and business solutions",
+        "SQ": "Block Inc. (Square) - Financial services and mobile payments",
+        "ROKU": "Roku Inc. - Streaming platform and smart TV operating system",
+        "CRWD": "CrowdStrike Holdings Inc. - Cybersecurity and endpoint protection",
+        "OKTA": "Okta Inc. - Identity and access management software",
+        "DOCU": "DocuSign Inc. - Electronic signature and document management",
+        
+        # Financial & Industrial
+        "BRK-B": "Berkshire Hathaway Inc. - Conglomerate with diverse business holdings",
+        "UNH": "UnitedHealth Group Inc. - Healthcare insurance and services",
+        "JNJ": "Johnson & Johnson - Healthcare products and pharmaceuticals",
+        "JPM": "JPMorgan Chase & Co. - Banking and financial services",
+        "V": "Visa Inc. - Payment processing and financial services",
+        "PG": "Procter & Gamble Co. - Consumer goods and household products",
+        "HD": "Home Depot Inc. - Home improvement retail",
+        "MA": "Mastercard Inc. - Payment processing and financial services",
+        "DIS": "Walt Disney Co. - Entertainment, media, and theme parks",
+        "XOM": "Exxon Mobil Corporation - Oil and gas exploration and production"
+    }
+    
+    selected_watchlist = st.selectbox(
+        "Scan Universe", 
+        list(watchlists.keys()), 
+        key="scan_universe",
+        help="Predefined groups of stocks to scan. SP500: Large US companies. Tech: Technology leaders. Growth: High-growth stocks. Large Caps: Major companies."
+    )
+    tickers_to_scan = watchlists[selected_watchlist]
+    
+    if st.button("🔍 Run Scanner", key="run_scanner"):
+        with st.spinner("Scanning for opportunities..."):
+            results = []
+            
+            for ticker in tickers_to_scan:
+                try:
+                    # Fetch stock data
+                    stock = yf.Ticker(ticker)
+                    info = stock.info
+                    
+                    # Get market cap
+                    market_cap = info.get('marketCap', 0)
+                    if market_cap < min_cap_value:
+                        continue
+                    
+                    # Get price history
+                    hist = fetch_price_history(ticker, period="5d", interval="1d")
+                    if hist.empty or len(hist) < 2:
+                        continue
+                    
+                    # Calculate metrics
+                    current_price = hist['Close'].iloc[-1]
+                    prev_price = hist['Close'].iloc[-2]
+                    price_change = (current_price - prev_price) / prev_price
+                    
+                    # Volume analysis
+                    current_volume = hist['Volume'].iloc[-1]
+                    avg_volume = hist['Volume'].rolling(5).mean().iloc[-1]
+                    volume_ratio = current_volume / avg_volume if avg_volume > 0 else 0
+                    
+                    # Moving averages
+                    ma20 = hist['Close'].rolling(20).mean().iloc[-1]
+                    ma50 = hist['Close'].rolling(50).mean().iloc[-1]
+                    
+                    # RSI calculation
+                    delta = hist['Close'].diff()
+                    gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
+                    loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
+                    rs = gain / loss
+                    rsi = 100 - (100 / (1 + rs))
+                    current_rsi = rsi.iloc[-1]
+                    
+                    # Filter based on scan type
+                    include_stock = False
+                    if scan_type == "Momentum Movers (5%+ gainers)" and price_change > 0.05:
+                        include_stock = True
+                    elif scan_type == "Volume Spikes (2x+ average)" and volume_ratio > 2.0:
+                        include_stock = True
+                    elif scan_type == "Breakout Candidates" and current_price > ma20 and price_change > 0.02:
+                        include_stock = True
+                    elif scan_type == "Gap Up/Down Scanner" and abs(price_change) > 0.03:
+                        include_stock = True
+                    elif scan_type == "Relative Strength Leaders" and current_price > ma20 and current_price > ma50:
+                        include_stock = True
+                    
+                    if include_stock:
+                        # Get additional info
+                        sector = info.get('sector', 'N/A')
+                        industry = info.get('industry', 'N/A')
+                        description = ticker_descriptions.get(ticker, 'N/A')
+                        
+                        results.append({
+                            'Ticker': ticker,
+                            'Description': description,
+                            'Price': current_price,
+                            'Change %': price_change,
+                            'Volume Ratio': volume_ratio,
+                            'RSI': current_rsi,
+                            'Sector': sector,
+                            'Industry': industry,
+                            'Market Cap': market_cap
+                        })
+                        
+                except Exception as e:
+                    continue
+            
+            if results:
+                df_results = pd.DataFrame(results)
+                df_results = df_results.sort_values('Change %', ascending=False)
+                
+                # Display results
+                st.subheader(f"📈 {scan_type} - {len(results)} Results")
+                
+                # Format the dataframe
+                st.dataframe(
+                    df_results.style.format({
+                        'Price': '{:.2f}',
+                        'Change %': '{:.2%}',
+                        'Volume Ratio': '{:.1f}x',
+                        'RSI': '{:.1f}',
+                        'Market Cap': '{:,.0f}'
+                    }),
+                    use_container_width=True,
+                    hide_index=True
+                )
+                
+                # Top performers chart
+                if len(results) > 0:
+                    top_5 = df_results.head(5)
+                    fig = go.Figure()
+                    fig.add_trace(go.Bar(
+                        x=top_5['Ticker'],
+                        y=top_5['Change %'],
+                        text=[f"{x:.1%}" for x in top_5['Change %']],
+                        textposition='auto',
+                        marker_color='green'
+                    ))
+                    fig.update_layout(
+                        title="Top 5 Performers Today",
+                        xaxis_title="Ticker",
+                        yaxis_title="Price Change %",
+                        height=400
+                    )
+                    st.plotly_chart(fig, use_container_width=True)
+                
+                # Export results
+                csv_data = df_results.to_csv(index=False)
+                st.download_button(
+                    "⬇️ Download Results",
+                    data=csv_data,
+                    file_name=f"daily_scanner_{scan_type.replace(' ', '_').lower()}.csv",
+                    mime="text/csv"
+                )
+                
+            else:
+                st.warning(f"No stocks found matching criteria for {scan_type}")
+    
+    # Quick filters
+    st.subheader("⚡ Quick Filters")
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        if st.button("🚀 Top Gainers", key="top_gainers"):
+            st.session_state.quick_filter = "gainers"
+    
+    with col2:
+        if st.button("📊 High Volume", key="high_volume"):
+            st.session_state.quick_filter = "volume"
+    
+    with col3:
+        if st.button("💪 Strong RSI", key="strong_rsi"):
+            st.session_state.quick_filter = "rsi"
+
+# =============================
+# Sector Tracker
 # =============================
 elif page == "Sector Tracker":
     st.header("🔄 Sector Rotation Tracker")
@@ -1268,506 +3071,3 @@ elif page == "Settings":
     - Fundamental data: Quarterly/annual reports
     - Options data: Real-time during market hours
     """)
-
-
-# =============================
-# Weekly Watchlist
-# =============================
-elif page == "Weekly Watchlist":
-    st.header("📊 Advanced Weekly Watchlist Scanner")
-    st.caption("Real‑time(ish) momentum & health scan. Uses 1‑minute data when available; educational only.")
-
-    # Guard: descriptions
-    try:
-        ticker_descriptions
-    except NameError:
-        ticker_descriptions = {}
-
-    # --- Controls
-    c1, c2, c3 = st.columns([1.5,1,1])
-    with c1:
-        universe = st.selectbox(
-            "Scan Universe",
-            ["Curated (ETFs + Mega‑caps)", "Tech Leaders", "Growth Focus", "Custom"],
-            help="Choose a group to scan or provide your own list."
-        )
-    with c2:
-        scan_type = st.selectbox(
-            "Scan Type",
-            ["Momentum (today)", "Momentum (5d)", "Volume Spike", "RSI Extremes", "Breakout Check"],
-            help="What to look for in today's action."
-        )
-    with c3:
-        min_mcap = st.selectbox(
-            "Min Market Cap",
-            ["Any","$2B+","$10B+","$50B+"],
-            index=2
-        )
-
-    # Custom tickers
-    custom_list = []
-    if universe == "Custom":
-        custom_text = st.text_area("Tickers (one per line)", value="""AAPL
-MSFT
-NVDA
-SPY
-QQQ""")
-        custom_list = [t.strip().upper() for t in custom_text.splitlines() if t.strip()]
-
-    # Universe definitions
-    universes = {
-        "Curated (ETFs + Mega‑caps)": ["SPY","QQQ","DIA","IWM","SMH","XLK","XLF","XLV","XLE",
-                                       "AAPL","MSFT","NVDA","AMZN","META","TSLA","GOOGL","BRK-B"],
-        "Tech Leaders": ["AAPL","MSFT","NVDA","AMZN","GOOGL","META","TSLA","AVGO","AMD","NFLX","ADBE","CRM"],
-        "Growth Focus": ["NVDA","TSLA","META","SHOP","CRWD","PLTR","SNOW","ROKU","SQ","ZM","COIN"],
-        "Custom": custom_list
-    }
-    tickers = [t for t in universes[universe] if t]
-
-    # Market‑cap filter helper (uses yfinance info; fallback allows all)
-    import yfinance as yf
-    import numpy as np
-    import pandas as pd
-    import plotly.graph_objects as go
-
-    def _passes_mcap(t):
-        try:
-            info = yf.Ticker(t).fast_info
-            mc = getattr(info, "market_cap", None)
-        except Exception:
-            mc = None
-        thr = {"Any":0, "$2B+":2_000_000_000, "$10B+":10_000_000_000, "$50B+":50_000_000_000}[min_mcap]
-        return True if (mc is None or mc >= thr) else False
-
-    @st.cache_data(ttl=45)
-    def _intraday(t):
-        try:
-            df = yf.Ticker(t).history(period="1d", interval="1m", auto_adjust=False)
-            if df is not None and not df.empty:
-                df.index = pd.to_datetime(df.index)
-                return df
-        except Exception:
-            pass
-        return pd.DataFrame()
-
-    @st.cache_data(ttl=120)
-    def _daily(t, period="3mo", interval="1d"):
-        try:
-            df = yf.Ticker(t).history(period=period, interval=interval, auto_adjust=False)
-            if df is not None and not df.empty:
-                df.index = pd.to_datetime(df.index)
-                return df
-        except Exception:
-            pass
-        return pd.DataFrame()
-
-    def _rsi(series, window=14):
-        if series is None or series.empty:
-            return np.nan
-        delta = series.diff()
-        gain = (delta.where(delta > 0, 0)).rolling(window=window).mean()
-        loss = (-delta.where(delta < 0, 0)).rolling(window=window).mean()
-        rs = gain / loss
-        rsi = 100 - (100 / (1 + rs))
-        return float(rsi.dropna().iloc[-1]) if not rsi.dropna().empty else np.nan
-
-    st.markdown("---")
-    r1, r2, r3 = st.columns([1,1,2])
-    with r1:
-        run = st.button("▶ Run Weekly Scan", type="primary", key="run_weekly")
-    with r2:
-        refresh = st.button("🔄 Refresh now", key="refresh_weekly")
-    with r3:
-        st.write(f"Last updated: **{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}**")
-
-    if run or refresh:
-        with st.spinner("Scanning..."):
-            rows = []
-            for t in tickers:
-                if not _passes_mcap(t):
-                    continue
-                try:
-                    intr = _intraday(t)
-                    hist5d = _daily(t, period="5d", interval="1d")
-                    hist60 = _daily(t, period="3mo", interval="1d")
-
-                    # price now
-                    price_now = np.nan
-                    try:
-                        fi = getattr(yf.Ticker(t), "fast_info", None)
-                        if fi and getattr(fi, "last_price", None) is not None:
-                            price_now = float(fi.last_price)
-                    except Exception:
-                        pass
-                    if np.isnan(price_now):
-                        if not intr.empty:
-                            price_now = float(intr["Close"].iloc[-1])
-                        elif not hist5d.empty:
-                            price_now = float(hist5d["Close"].iloc[-1])
-                        else:
-                            continue
-
-                    # Today momentum vs prev close
-                    if not hist5d.empty and len(hist5d) >= 2:
-                        prev_close = float(hist5d["Close"].iloc[-2])
-                        mom_today = (price_now / prev_close - 1.0) if prev_close else np.nan
-                    else:
-                        mom_today = np.nan
-
-                    # Volume ratio
-                    if not intr.empty:
-                        vol_today = float(intr["Volume"].sum())
-                    else:
-                        vol_today = float(hist5d["Volume"].iloc[-1]) if not hist5d.empty else np.nan
-                    vol_avg5 = float(hist5d["Volume"].iloc[:-1].tail(5).mean()) if not hist5d.empty else np.nan
-                    vol_ratio = (vol_today / vol_avg5) if (vol_avg5 and vol_avg5==vol_avg5 and vol_avg5>0) else np.nan
-
-                    # 5d momentum
-                    if not hist5d.empty and len(hist5d) >= 2:
-                        mom_5d = float(hist5d["Close"].iloc[-1] / hist5d["Close"].iloc[0] - 1.0)
-                    else:
-                        mom_5d = np.nan
-
-                    # RSI
-                    px = intr["Close"] if not intr.empty else (hist5d["Close"] if not hist5d.empty else pd.Series(dtype=float))
-                    rsi = _rsi(px, 14)
-
-                    # MAs
-                    ma20 = float(hist60["Close"].rolling(20).mean().iloc[-1]) if not hist60.empty and len(hist60)>=20 else np.nan
-                    ma50 = float(hist60["Close"].rolling(50).mean().iloc[-1]) if not hist60.empty and len(hist60)>=50 else np.nan
-
-                    score_map = {
-                        "Momentum (today)": mom_today,
-                        "Momentum (5d)": mom_5d,
-                        "Volume Spike": vol_ratio,
-                        "RSI Extremes": rsi,
-                        "Breakout Check": (1.0 if (price_now>ma20 and price_now>ma50 and ma20==ma20 and ma50==ma50) else 0.0),
-                    }
-                    score = score_map.get(scan_type, np.nan)
-
-                    rows.append({
-                        "Ticker": t,
-                        "Price": price_now,
-                        "Today %": mom_today,
-                        "5d %": mom_5d,
-                        "Vol Ratio": vol_ratio,
-                        "RSI": rsi,
-                        "Above 20/50": "Yes" if (price_now>ma20 and price_now>ma50 and ma20==ma20 and ma50==ma50) else "No",
-                        "Score": score,
-                    })
-                except Exception:
-                    continue
-
-            if not rows:
-                st.warning("No results. Try a different universe or loosen filters.")
-            else:
-                df = pd.DataFrame(rows)
-
-                # Links
-                def _yahoo_sym(t):  # Yahoo uses '-' for classes
-                    return t.replace('.', '-')
-                def _finviz_sym(t): # Finviz uses '.' for classes
-                    return t.replace('-', '.')
-                df["Yahoo"] = df["Ticker"].apply(lambda t: f"https://finance.yahoo.com/quote/{_yahoo_sym(t)}")
-                df["Finviz"] = df["Ticker"].apply(lambda t: f"https://finviz.com/quote.ashx?t={_finviz_sym(t)}")
-
-                # Rank per scan type
-                if scan_type in ["Momentum (today)","Momentum (5d)"]:
-                    df = df.sort_values("Score", ascending=False)
-                elif scan_type == "Volume Spike":
-                    df = df.sort_values("Vol Ratio", ascending=False)
-                elif scan_type == "RSI Extremes":
-                    df["Score"] = (50 - (df["RSI"] - 50).abs())
-                    df = df.sort_values("Score")
-                elif scan_type == "Breakout Check":
-                    df = df.sort_values(["Above 20/50","5d %"], ascending=[False, False])
-
-                st.subheader(f"Results – {len(df)} tickers")
-
-                try:
-                    from streamlit import column_config as cc
-                    colcfg = {
-                        "Price": cc.NumberColumn(format="%.2f"),
-                        "Today %": cc.NumberColumn(format="%.2f%%"),
-                        "5d %": cc.NumberColumn(format="%.2f%%"),
-                        "Vol Ratio": cc.NumberColumn(format="%.2f"),
-                        "RSI": cc.NumberColumn(format="%.1f"),
-                        "Yahoo": cc.LinkColumn(display_text="Yahoo Finance"),
-                        "Finviz": cc.LinkColumn(display_text="Finviz"),
-                    }
-                    st.dataframe(df, use_container_width=True, hide_index=True, column_config=colcfg)
-                except Exception:
-                    st.dataframe(df, use_container_width=True, hide_index=True)
-
-                # Quick chart
-                pick = st.selectbox("Quick chart", df["Ticker"].tolist())
-                hist = _daily(pick, period="3mo", interval="1d")
-                if not hist.empty:
-                    fig = go.Figure()
-                    fig.add_trace(go.Candlestick(x=hist.index, open=hist["Open"], high=hist["High"], low=hist["Low"], close=hist["Close"], name=pick))
-                    fig.update_layout(height=420, title=f"{pick} – 3mo daily")
-                    st.plotly_chart(fig, use_container_width=True)
-
-                # Export
-                st.download_button(
-                    "⬇️ Download CSV",
-                    df.to_csv(index=False),
-                    file_name=f"weekly_scan_{datetime.now().strftime('%Y%m%d_%H%M')}.csv",
-                    mime="text/csv"
-                )
-
-
-
-# =============================
-# Daily Scanner
-# =============================
-elif page == "Daily Scanner":
-    st.header("📊 Daily Momentum Scanner")
-    st.caption("Real‑time(ish) intraday scanner using 1‑minute data and daily context. Educational use only.")
-
-    # --------- Universe ---------
-    watchlists = {
-        "SPY + QQQ + DIA + IWM": ["SPY","QQQ","DIA","IWM"],
-        "Tech Leaders": ["AAPL","MSFT","NVDA","AMZN","META","GOOGL","AVGO","AMD","ADBE","CRM","NFLX"],
-        "Large Caps": ["AAPL","MSFT","NVDA","AMZN","META","GOOGL","BRK-B","JPM","V","MA","JNJ","UNH","PG","XOM"],
-        "Growth Focus": ["SHOP","CRWD","PLTR","SNOW","ROKU","SQ","ZM","COIN","NET","DDOG","U"],
-        "Custom": []
-    }
-
-    colU, colS, colC = st.columns([1.4,1,1])
-    with colU:
-        selected_watchlist = st.selectbox("Scan Universe", list(watchlists.keys()), key="scan_universe_daily")
-    with colS:
-        scan_type = st.selectbox(
-            "Scanner Type",
-            ["Momentum Movers", "Volume Spikes", "Breakout Candidates", "Gap Up/Down", "RSI Extremes"],
-            help="Pick the condition to screen for."
-        )
-    with colC:
-        min_mcap_label = st.selectbox("Min Market Cap", ["Any","$2B+","$10B+","$50B+"], index=2)
-
-    if selected_watchlist == "Custom":
-        custom_text = st.text_area(
-            "Tickers (one per line)",
-            value="""AAPL
-MSFT
-NVDA
-SPY
-QQQ"""
-        )
-        watchlists["Custom"] = [t.strip().upper() for t in custom_text.splitlines() if t.strip()]
-
-    tickers_to_scan = watchlists[selected_watchlist]
-
-    # --------- Controls ---------
-    colA, colB, colC2, colD = st.columns([1,1,1,2])
-    with colA:
-        run = st.button("🔍 Run Scanner", key="run_scanner_daily", type="primary")
-    with colB:
-        refresh = st.button("🔄 Refresh", key="refresh_daily")
-    with colC2:
-        loosen = st.toggle("Loosen filters", value=False, help="Relax thresholds if you get empty results.")
-    with colD:
-        st.write(f"Last updated: **{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}**")
-
-    # Thresholds
-    vol_thr = 1.5 if loosen else 2.0
-    mom_thr = 0.03 if loosen else 0.05      # Momentum Movers threshold
-    brk_mom = 0.01 if loosen else 0.02      # Breakout minimal momentum
-    gap_thr = 0.02 if loosen else 0.03      # Gap magnitude
-    rsi_hi, rsi_lo = 70, 30
-
-    # --------- Helpers ---------
-    import yfinance as yf
-    import numpy as np
-    import pandas as pd
-    import plotly.graph_objects as go
-
-    @st.cache_data(ttl=60)
-    def _intraday(t):
-        try:
-            df = yf.Ticker(t).history(period="1d", interval="1m", auto_adjust=False)
-            if df is not None and not df.empty:
-                df.index = pd.to_datetime(df.index)
-                return df
-        except Exception:
-            pass
-        return pd.DataFrame()
-
-    @st.cache_data(ttl=120)
-    def _daily_3mo(t):
-        try:
-            df = yf.Ticker(t).history(period="3mo", interval="1d", auto_adjust=False)
-            if df is not None and not df.empty:
-                df.index = pd.to_datetime(df.index)
-                return df
-        except Exception:
-            pass
-        return pd.DataFrame()
-
-    def _fast_mcap(tk: yf.Ticker):
-        try:
-            fi = getattr(tk, "fast_info", None)
-            return getattr(fi, "market_cap", None) if fi else None
-        except Exception:
-            return None
-
-    min_cap_value = {"Any":0, "$2B+":2_000_000_000, "$10B+":10_000_000_000, "$50B+":50_000_000_000}[min_mcap_label]
-
-    if run or refresh:
-        with st.spinner("Scanning for opportunities..."):
-            results = []
-
-            for ticker in tickers_to_scan:
-                try:
-                    tk = yf.Ticker(ticker)
-
-                    # Market cap (do not exclude if missing)
-                    mc = _fast_mcap(tk)
-                    if mc is not None and mc < min_cap_value:
-                        continue
-
-                    # Data
-                    d3 = _daily_3mo(ticker)
-                    if d3.empty or len(d3) < 5:
-                        continue
-
-                    intr = _intraday(ticker)
-
-                    # Price and change vs prior close
-                    if not d3.empty and len(d3) >= 2:
-                        prev_close = float(d3["Close"].iloc[-2])
-                    else:
-                        prev_close = np.nan
-
-                    if not intr.empty:
-                        last_price = float(intr["Close"].iloc[-1])
-                        today_open = float(intr["Open"].iloc[0])
-                        todays_volume = float(intr["Volume"].sum())
-                    else:
-                        last_price = float(d3["Close"].iloc[-1])
-                        todays_volume = float(d3["Volume"].iloc[-1]) if "Volume" in d3 else np.nan
-                        today_open = float(d3["Open"].iloc[-1]) if "Open" in d3 else last_price
-
-                    if prev_close and not np.isnan(prev_close) and prev_close != 0:
-                        price_change = (last_price / prev_close) - 1.0
-                    else:
-                        price_change = np.nan
-
-                    # Baseline volume: prior 10 days, excluding today
-                    vol_window = d3["Volume"].iloc[:-1].tail(10) if "Volume" in d3 else pd.Series(dtype=float)
-                    avg_volume = float(vol_window.mean()) if not vol_window.empty else np.nan
-                    volume_ratio = (todays_volume / avg_volume) if (avg_volume and avg_volume > 0) else np.nan
-
-                    # Moving averages
-                    ma20 = float(d3["Close"].rolling(20).mean().iloc[-1]) if len(d3) >= 20 else np.nan
-                    ma50 = float(d3["Close"].rolling(50).mean().iloc[-1]) if len(d3) >= 50 else np.nan
-
-                    # RSI(14) on daily closes
-                    delta = d3["Close"].diff()
-                    gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
-                    loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
-                    rs = gain / loss
-                    rsi = 100 - (100 / (1 + rs))
-                    current_rsi = float(rsi.iloc[-1]) if not rsi.dropna().empty else np.nan
-
-                    # Conditions
-                    include = False
-                    if scan_type == "Momentum Movers" and not np.isnan(price_change) and price_change > mom_thr:
-                        include = True
-                    elif scan_type == "Volume Spikes" and not np.isnan(volume_ratio) and volume_ratio > vol_thr:
-                        include = True
-                    elif scan_type == "Breakout Candidates" and (not np.isnan(ma20)) and last_price > ma20 and price_change > brk_mom:
-                        include = True
-                    elif scan_type == "Gap Up/Down" and not np.isnan(price_change) and abs(price_change) > gap_thr:
-                        include = True
-                    elif scan_type == "RSI Extremes" and (not np.isnan(current_rsi)) and (current_rsi >= rsi_hi or current_rsi <= rsi_lo):
-                        include = True
-
-                    if include:
-                        # Optional sector/industry (avoid blocking on failures)
-                        sector = "N/A"
-                        industry = "N/A"
-                        try:
-                            info = tk.info
-                            if isinstance(info, dict):
-                                sector = info.get("sector", "N/A")
-                                industry = info.get("industry", "N/A")
-                        except Exception:
-                            pass
-
-                        results.append({
-                            "Ticker": ticker,
-                            "Price": last_price,
-                            "Change %": price_change,
-                            "Volume Ratio": volume_ratio,
-                            "RSI": current_rsi,
-                            "Above 20/50": "Yes" if (not np.isnan(ma20) and not np.isnan(ma50) and last_price > ma20 and last_price > ma50) else "No",
-                            "Sector": sector,
-                            "Industry": industry,
-                            "Market Cap": mc if mc is not None else 0
-                        })
-                except Exception:
-                    continue
-
-            if not results:
-                st.warning("No matches with the current thresholds. Try **Loosen filters**, switch universe, or hit **Refresh** during market hours.")
-            else:
-                df = pd.DataFrame(results)
-
-                # Add links
-                def _yahoo_sym(t):  # Yahoo uses '-' for classes
-                    return t.replace('.', '-')
-                def _finviz_sym(t): # Finviz uses '.' for classes
-                    return t.replace('-', '.')
-                df["Yahoo"] = df["Ticker"].apply(lambda t: f"https://finance.yahoo.com/quote/{_yahoo_sym(t)}")
-                df["Finviz"] = df["Ticker"].apply(lambda t: f"https://finviz.com/quote.ashx?t={_finviz_sym(t)}")
-
-                # Sorting heuristic by scan type
-                if scan_type == "Momentum Movers":
-                    df = df.sort_values("Change %", ascending=False)
-                elif scan_type == "Volume Spikes":
-                    df = df.sort_values("Volume Ratio", ascending=False)
-                elif scan_type == "Breakout Candidates":
-                    df = df.sort_values(["Above 20/50","Change %"], ascending=[False, False])
-                elif scan_type == "Gap Up/Down":
-                    df["Abs Change %"] = df["Change %"].abs()
-                    df = df.sort_values("Abs Change %", ascending=False)
-                elif scan_type == "RSI Extremes":
-                    df["RSI Dist"] = (df["RSI"] - 50).abs()
-                    df = df.sort_values("RSI Dist", ascending=False)
-
-                st.subheader(f"📈 {scan_type} — {len(df)} result(s)")
-
-                try:
-                    from streamlit import column_config as cc
-                    colcfg = {
-                        "Price": cc.NumberColumn(format="%.2f"),
-                        "Change %": cc.NumberColumn(format="%.2f%%"),
-                        "Volume Ratio": cc.NumberColumn(format="%.2f"),
-                        "RSI": cc.NumberColumn(format="%.1f"),
-                        "Yahoo": cc.LinkColumn(display_text="Yahoo Finance"),
-                        "Finviz": cc.LinkColumn(display_text="Finviz"),
-                    }
-                    st.dataframe(df, use_container_width=True, hide_index=True, column_config=colcfg)
-                except Exception:
-                    st.dataframe(df, use_container_width=True, hide_index=True)
-
-                # Quick chart
-                pick = st.selectbox("Quick chart", df["Ticker"].tolist())
-                hist = _daily_3mo(pick)
-                if not hist.empty:
-                    fig = go.Figure()
-                    fig.add_trace(go.Candlestick(x=hist.index, open=hist["Open"], high=hist["High"], low=hist["Low"], close=hist["Close"], name=pick))
-                    fig.update_layout(height=420, title=f"{pick} — 3mo daily")
-                    st.plotly_chart(fig, use_container_width=True)
-
-                # Export
-                st.download_button(
-                    "⬇️ Download CSV",
-                    df.to_csv(index=False),
-                    file_name=f"daily_scan_{datetime.now().strftime('%Y%m%d_%H%M')}.csv",
-                    mime="text/csv"
-                )
-
-
