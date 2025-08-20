@@ -12,6 +12,52 @@ import plotly.graph_objects as go
 import streamlit as st
 import yfinance as yf
 
+# --- Safe, cacheable info fetcher (serializable return) ---
+@st.cache_data(ttl=300)
+def _info_fast(symbol: str):
+    import numpy as _np
+    try:
+        tk = yf.Ticker(symbol)
+        out = {}
+
+        # fast_info (all primitives)
+        try:
+            fi = getattr(tk, "fast_info", None)
+            if fi:
+                for k in [
+                    "last_price","market_cap","dividend_yield","year_high","year_low",
+                    "shares_outstanding","ten_day_average_volume","two_hundred_day_average"
+                ]:
+                    v = getattr(fi, k, None)
+                    if isinstance(v, (_np.floating, _np.integer)):
+                        v = float(v)
+                    if isinstance(v, (int, float)):
+                        if v != v or v in (float("inf"), float("-inf")):
+                            v = None
+                    out[k] = v
+        except Exception:
+            pass
+
+        # info dict (pick only a few simple fields)
+        try:
+            info = tk.info
+            if isinstance(info, dict):
+                for k in ["shortName","sector","industry","trailingPE","forwardPE","trailingEps","forwardEps","dividendRate","dividendYield","payoutRatio"]:
+                    v = info.get(k)
+                    if isinstance(v, (_np.floating, _np.integer)):
+                        v = float(v)
+                    if isinstance(v, (int, float)):
+                        if v != v or v in (float("inf"), float("-inf")):
+                            v = None
+                    out[k] = v
+        except Exception:
+            pass
+
+        return out
+    except Exception:
+        return {}
+
+
 # =============================
 # App config
 # =============================
@@ -2046,305 +2092,777 @@ elif page == "Weekly Watchlist":
 
 
 
-
 # =============================
 # AI Next Year Prediction
 # =============================
 elif page == "AI Next Year Prediction":
     st.header("🤖 AI Stock Prediction & Analysis")
-    st.caption("Intraday‑aware forecast for the next 12 months using simple, transparent models. Educational use only.")
-
-    c1, c2, c3, c4 = st.columns([1.2,1,1,1])
-    with c1:
-        symp = st.text_input("Ticker", value="AAPL", key="pred_sym", help="Example: AAPL, MSFT, NVDA, SPY")
-    with c2:
-        method = st.selectbox("Model", ["Linear Trend", "Polynomial (2)", "EMA (90‑day)"], key="pred_method")
-    with c3:
-        horizon_m = st.number_input("Horizon (months)", 6, 36, 12, 1, key="pred_h")
-    with c4:
-        run_pred = st.button("🔮 Run Prediction", type="primary")
-    refresh_pred = st.button("🔄 Refresh Data")
-
-    import numpy as np
-    import pandas as pd
-
-    def _intraday_last(t):
-        try:
-            fi = getattr(yf.Ticker(t), "fast_info", None)
-            if fi and getattr(fi, "last_price", None) is not None:
-                return float(fi.last_price)
-        except Exception:
-            pass
-        return np.nan
-
-    @st.cache_data(ttl=180)
-    def _hist_monthly(t):
-        try:
-            df = fetch_price_history(t, period="10y", interval="1mo")
-            if df is not None and not df.empty:
-                df = df[["Close"]].dropna().copy()
-                df.index = pd.to_datetime(df.index)
-                return df
-        except Exception:
-            pass
-        return pd.DataFrame()
-
-    if (run_pred or refresh_pred) and symp.strip():
-        ticker = symp.strip().upper()
-        with st.spinner("Fetching data & fitting model..."):
-            hist = _hist_monthly(ticker)
-            if hist.empty or len(hist) < 12:
-                st.warning("Not enough monthly history to forecast. Try another symbol.")
-            else:
-                df = hist.copy()
-                df["t"] = np.arange(len(df))
-                y = df["Close"].values.astype(float)
-                t = df["t"].values.astype(float)
-
-                # Fit chosen model
-                try:
+    st.caption("Advanced stock prediction with technical analysis, fundamental insights, and winning stock characteristics")
+    
+    # Input section
+    col1, col2 = st.columns([2, 1])
+    with col1:
+        symp = st.text_input("Stock Ticker", value="AAPL", key="pred_sym", help="Enter stock symbol (e.g., AAPL, MSFT, NVDA)")
+    with col2:
+        prediction_method = st.selectbox(
+            "Prediction Method",
+            ["Linear Trend", "Polynomial Trend", "Moving Average", "Exponential Smoothing"],
+            key="pred_method",
+            help="Different mathematical models for price prediction"
+        )
+    
+    if symp:
+        with st.spinner("Analyzing stock data and generating predictions..."):
+            try:
+                # Enhanced prediction function
+                def enhanced_ai_prediction(ticker: str, method: str = "Linear Trend"):
+                    hist = fetch_price_history(ticker, period="5y", interval="1mo")
+                    if hist.empty or len(hist) < 12:
+                        return None, None, None, None, None, None
+                    
+                    df = hist.dropna(subset=["Close"]).copy().reset_index()
+                    df["t"] = np.arange(len(df))
+                    prices = df["Close"].values
+                    time_points = df["t"].values
+                    
+                    current = float(prices[-1])
+                    
                     if method == "Linear Trend":
-                        # y = a + b*t
-                        b, a = np.polyfit(t, y, 1)
-                        f = lambda tt: a + b*tt
-                    elif method == "Polynomial (2)":
-                        # y = a + b*t + c*t^2
-                        c, b, a = np.polyfit(t, y, 2)
-                        f = lambda tt: a + b*tt + c*(tt**2)
-                    else:  # EMA (90‑day) approximated on monthly closes
-                        ema = df["Close"].ewm(span=3, adjust=False).mean()  # 3 months ~ 90 days
-                        a, b = np.polyfit(t, ema.values, 1)
-                        f = lambda tt: a + b*tt
-                except Exception as e:
-                    st.error(f"Model fit failed: {e}")
-                    f = None
-
-                # Forecast next horizon
-                if f is not None:
-                    last_t = t[-1]
-                    future_t = np.arange(last_t+1, last_t+1+horizon_m)
-                    pred_series = pd.Series(f(future_t), index=pd.date_range(df.index[-1] + pd.offsets.MonthEnd(1), periods=horizon_m, freq="M"))
-                    current = _intraday_last(ticker)
-                    if np.isnan(current):
-                        current = float(df["Close"].iloc[-1])
-
-                    # Display metrics
-                    colm, colr = st.columns([1,1])
-                    with colm:
-                        st.metric("Last Price", f"${current:,.2f}")
-                        st.metric(f"{horizon_m}‑mo Forecast", f"${pred_series.iloc[-1]:,.2f}")
-                    with colr:
-                        total_ret = (pred_series.iloc[-1] / current - 1.0)
-                        ann = (1+total_ret)**(12.0/horizon_m) - 1.0 if horizon_m>0 else np.nan
-                        st.metric("Total Return (est.)", f"{total_ret*100:,.1f}%")
-                        st.metric("Annualized (est.)", f"{ann*100:,.1f}%")
-
-                    # Chart
-                    fig = go.Figure()
-                    fig.add_trace(go.Scatter(x=df.index, y=df["Close"], name="History", mode="lines"))
-                    fig.add_trace(go.Scatter(x=pred_series.index, y=pred_series.values, name="Forecast", mode="lines"))
-                    fig.update_layout(height=420, title=f"{ticker} — {horizon_m}‑month forecast ({method})")
-                    st.plotly_chart(fig, use_container_width=True)
-
-                    # Table
-                    out = pd.DataFrame({
-                        "Date": list(df.index[-6:]) + list(pred_series.index),
-                        "Price": list(df["Close"].tail(6).values) + list(pred_series.values)
-                    })
-                    st.dataframe(out, use_container_width=True, hide_index=True)
-
-                    # Links
-                    def _yahoo_sym(t):  # Yahoo uses '-' for classes
-                        return t.replace('.', '-')
-                    def _finviz_sym(t): # Finviz uses '.' for classes
-                        return t.replace('-', '.')
-                    st.link_button("Yahoo Finance", f"https://finance.yahoo.com/quote/{_yahoo_sym(ticker)}")
-                    st.link_button("Finviz", f"https://finviz.com/quote.ashx?t={_finviz_sym(ticker)}")
-
+                        coeffs = np.polyfit(time_points, prices, 1)
+                        pred = float(np.polyval(coeffs, len(df) + 12))
+                        trend_slope = coeffs[0]
+                        confidence = 0.7
+                    elif method == "Polynomial Trend":
+                        coeffs = np.polyfit(time_points, prices, 2)
+                        pred = float(np.polyval(coeffs, len(df) + 12))
+                        trend_slope = coeffs[1] + 2 * coeffs[0] * (len(df) + 12)
+                        confidence = 0.6
+                    elif method == "Moving Average":
+                        ma_20 = prices[-20:].mean()
+                        ma_50 = prices[-50:].mean() if len(prices) >= 50 else prices.mean()
+                        trend_factor = ma_20 / ma_50
+                        pred = current * (trend_factor ** 12)
+                        trend_slope = (ma_20 - ma_50) / 30
+                        confidence = 0.5
+                    elif method == "Exponential Smoothing":
+                        alpha = 0.3
+                        smoothed = [prices[0]]
+                        for i in range(1, len(prices)):
+                            smoothed.append(alpha * prices[i] + (1 - alpha) * smoothed[i-1])
+                        trend_slope = (smoothed[-1] - smoothed[-12]) / 12 if len(smoothed) >= 12 else 0
+                        pred = current * (1 + trend_slope / current) ** 12
+                        confidence = 0.65
+                    else:
+                        return None, None, None, None, None, None
+                    
+                    series = df.set_index("Date")["Close"]
+                    return pred, current, series, trend_slope, confidence, prices
+                
+                # Get prediction
+                pred, current, series, trend_slope, confidence, prices = enhanced_ai_prediction(symp, prediction_method)
+                
+                if pred is None:
+                    st.warning("Not enough data to build a reliable projection. Need at least 12 months of data.")
+                else:
+                    # Calculate additional metrics
+                    price_change = (pred - current) / current
+                    annualized_return = ((pred / current) ** (1/12)) - 1
+                    
+                    # Technical Analysis
+                    hist_daily = fetch_price_history(symp, period="1y", interval="1d")
+                    if not hist_daily.empty:
+                        # RSI
+                        delta = hist_daily['Close'].diff()
+                        gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
+                        loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
+                        rs = gain / loss
+                        rsi = 100 - (100 / (1 + rs))
+                        current_rsi = rsi.iloc[-1]
+                        
+                        # Moving Averages
+                        ma20 = hist_daily['Close'].rolling(20).mean().iloc[-1]
+                        ma50 = hist_daily['Close'].rolling(50).mean().iloc[-1]
+                        ma200 = hist_daily['Close'].rolling(200).mean().iloc[-1]
+                        
+                        # Volatility
+                        returns = hist_daily['Close'].pct_change().dropna()
+                        volatility = returns.std() * np.sqrt(252)
+                        
+                        # Volume Analysis
+                        avg_volume = hist_daily['Volume'].mean()
+                        recent_volume = hist_daily['Volume'].tail(20).mean()
+                        volume_trend = (recent_volume - avg_volume) / avg_volume
+                    else:
+                        current_rsi = ma20 = ma50 = ma200 = volatility = volume_trend = np.nan
+                    
+                    # Fundamental Analysis
+                    try:
+                        stock = yf.Ticker(symp.upper().strip())
+                        info = stock.info
+                        
+                        # Key metrics
+                        pe_ratio = info.get('trailingPE', np.nan)
+                        market_cap = info.get('marketCap', np.nan)
+                        beta = info.get('beta', 1.0)
+                        dividend_yield = info.get('dividendYield', 0)
+                        profit_margin = info.get('profitMargins', np.nan)
+                        revenue_growth = info.get('revenueGrowth', np.nan)
+                        debt_to_equity = info.get('debtToEquity', np.nan)
+                        
+                        # Sector and industry
+                        sector = info.get('sector', 'N/A')
+                        industry = info.get('industry', 'N/A')
+                        
+                    except Exception:
+                        pe_ratio = market_cap = beta = dividend_yield = profit_margin = revenue_growth = debt_to_equity = np.nan
+                        sector = industry = 'N/A'
+                    
+                    # Display Results
+                    st.subheader("📊 Prediction Results")
+                    
+                    # Key metrics in columns
+                    col1, col2, col3, col4 = st.columns(4)
+                    with col1:
+                        st.metric("Current Price", f"${current:.2f}")
+                        st.metric("Predicted Price (12m)", f"${pred:.2f}")
+                    with col2:
+                        st.metric("Expected Return", f"{price_change:.1%}")
+                        st.metric("Annualized Return", f"{annualized_return:.1%}")
+                    with col3:
+                        st.metric("Trend Direction", "📈 Bullish" if trend_slope > 0 else "📉 Bearish")
+                        st.metric("Confidence Level", f"{confidence:.0%}")
+                    with col4:
+                        st.metric("RSI", f"{current_rsi:.1f}" if not np.isnan(current_rsi) else "N/A")
+                        st.metric("Volatility", f"{volatility:.1%}" if not np.isnan(volatility) else "N/A")
+                    
+                    # Prediction Chart
+                    st.subheader("📈 Price Projection Chart")
+                    figp = go.Figure()
+                    
+                    # Historical data
+                    figp.add_trace(go.Scatter(
+                        x=series.index, 
+                        y=series.values, 
+                        name="Historical Price",
+                        line=dict(color='blue', width=2)
+                    ))
+                    
+                    # Prediction line
+                    future_dates = pd.date_range(start=series.index[-1], periods=13, freq='M')[1:]
+                    future_prices = [current * (1 + annualized_return) ** i for i in range(1, 13)]
+                    
+                    figp.add_trace(go.Scatter(
+                        x=future_dates,
+                        y=future_prices,
+                        name="Prediction",
+                        line=dict(color='red', width=2, dash='dash')
+                    ))
+                    
+                    # Confidence interval
+                    confidence_range = 0.15  # 15% confidence interval
+                    upper_bound = [p * (1 + confidence_range) for p in future_prices]
+                    lower_bound = [p * (1 - confidence_range) for p in future_prices]
+                    
+                    figp.add_trace(go.Scatter(
+                        x=future_dates,
+                        y=upper_bound,
+                        fill=None,
+                        mode='lines',
+                        line=dict(color='rgba(255,0,0,0.2)'),
+                        showlegend=False
+                    ))
+                    
+                    figp.add_trace(go.Scatter(
+                        x=future_dates,
+                        y=lower_bound,
+                        fill='tonexty',
+                        mode='lines',
+                        line=dict(color='rgba(255,0,0,0.2)'),
+                        name="Confidence Interval"
+                    ))
+                    
+                    figp.update_layout(
+                        height=500,
+                        title=f"{symp.upper()} - 5-Year Historical + 12-Month Prediction",
+                        xaxis_title="Date",
+                        yaxis_title="Price ($)",
+                        hovermode='x unified'
+                    )
+                    st.plotly_chart(figp, use_container_width=True)
+                    
+                    # Technical Analysis Section
+                    st.subheader("🔧 Technical Analysis")
+                    col1, col2 = st.columns(2)
+                    
+                    with col1:
+                        st.markdown("**📊 Moving Averages:**")
+                        if not np.isnan(ma20) and not np.isnan(ma50):
+                            st.write(f"- 20MA: ${ma20:.2f}")
+                            st.write(f"- 50MA: ${ma50:.2f}")
+                            st.write(f"- 200MA: ${ma200:.2f}" if not np.isnan(ma200) else "- 200MA: N/A")
+                            
+                            # Trend analysis
+                            if current > ma20 > ma50:
+                                st.success("✅ Strong uptrend (above both 20MA and 50MA)")
+                            elif current > ma20 and ma20 < ma50:
+                                st.info("⚠️ Potential trend reversal (above 20MA, below 50MA)")
+                            elif current < ma20 < ma50:
+                                st.error("❌ Strong downtrend (below both 20MA and 50MA)")
+                            else:
+                                st.warning("🔄 Mixed signals")
+                        
+                        st.markdown("**📈 RSI Analysis:**")
+                        if not np.isnan(current_rsi):
+                            if current_rsi > 70:
+                                st.warning(f"⚠️ Overbought (RSI: {current_rsi:.1f})")
+                            elif current_rsi < 30:
+                                st.success(f"✅ Oversold (RSI: {current_rsi:.1f})")
+                            else:
+                                st.info(f"📊 Neutral (RSI: {current_rsi:.1f})")
+                    
+                    with col2:
+                        st.markdown("**📊 Volume Analysis:**")
+                        if not np.isnan(volume_trend):
+                            if volume_trend > 0.2:
+                                st.success(f"✅ High volume trend (+{volume_trend:.1%})")
+                            elif volume_trend < -0.2:
+                                st.warning(f"⚠️ Declining volume ({volume_trend:.1%})")
+                            else:
+                                st.info(f"📊 Normal volume trend ({volume_trend:.1%})")
+                        
+                        st.markdown("**📈 Volatility:**")
+                        if not np.isnan(volatility):
+                            if volatility > 0.4:
+                                st.warning(f"⚠️ High volatility ({volatility:.1%})")
+                            elif volatility < 0.2:
+                                st.success(f"✅ Low volatility ({volatility:.1%})")
+                            else:
+                                st.info(f"📊 Moderate volatility ({volatility:.1%})")
+                    
+                    # Fundamental Analysis Section
+                    st.subheader("💰 Fundamental Analysis")
+                    col1, col2 = st.columns(2)
+                    
+                    with col1:
+                        st.markdown("**📊 Valuation Metrics:**")
+                        if not np.isnan(pe_ratio):
+                            st.write(f"- P/E Ratio: {pe_ratio:.1f}")
+                            if pe_ratio < 15:
+                                st.success("✅ Potentially undervalued")
+                            elif pe_ratio > 25:
+                                st.warning("⚠️ Potentially overvalued")
+                            else:
+                                st.info("📊 Fairly valued")
+                        
+                        if not np.isnan(market_cap):
+                            st.write(f"- Market Cap: ${market_cap:,.0f}")
+                        
+                        if not np.isnan(beta):
+                            st.write(f"- Beta: {beta:.2f}")
+                            if beta > 1.2:
+                                st.warning("⚠️ High volatility vs market")
+                            elif beta < 0.8:
+                                st.success("✅ Lower volatility vs market")
+                            else:
+                                st.info("📊 Market-like volatility")
+                    
+                    with col2:
+                        st.markdown("**📈 Growth & Profitability:**")
+                        if not np.isnan(profit_margin):
+                            st.write(f"- Profit Margin: {profit_margin:.1%}")
+                            if profit_margin > 0.15:
+                                st.success("✅ High profitability")
+                            elif profit_margin < 0.05:
+                                st.warning("⚠️ Low profitability")
+                        
+                        if not np.isnan(revenue_growth):
+                            st.write(f"- Revenue Growth: {revenue_growth:.1%}")
+                            if revenue_growth > 0.1:
+                                st.success("✅ Strong growth")
+                            elif revenue_growth < 0:
+                                st.warning("⚠️ Declining revenue")
+                        
+                        if dividend_yield > 0:
+                            st.write(f"- Dividend Yield: {dividend_yield:.1%}")
+                            if dividend_yield > 0.03:
+                                st.success("✅ Good dividend yield")
+                    
+                    # Winning Stock Characteristics
+                    st.subheader("🏆 Winning Stock Analysis")
+                    
+                    # Score calculation
+                    score = 0
+                    max_score = 0
+                    analysis_points = []
+                    
+                    # Technical factors (40% weight)
+                    max_score += 40
+                    tech_score = 0
+                    
+                    if not np.isnan(current_rsi) and 30 <= current_rsi <= 70:
+                        tech_score += 10
+                        analysis_points.append("✅ RSI in healthy range")
+                    
+                    if not np.isnan(ma20) and not np.isnan(ma50) and current > ma20 > ma50:
+                        tech_score += 15
+                        analysis_points.append("✅ Strong uptrend with moving averages")
+                    
+                    if not np.isnan(volume_trend) and volume_trend > 0:
+                        tech_score += 10
+                        analysis_points.append("✅ Positive volume trend")
+                    
+                    if not np.isnan(volatility) and volatility < 0.3:
+                        tech_score += 5
+                        analysis_points.append("✅ Manageable volatility")
+                    
+                    score += tech_score
+                    
+                    # Fundamental factors (40% weight)
+                    max_score += 40
+                    fund_score = 0
+                    
+                    if not np.isnan(profit_margin) and profit_margin > 0.1:
+                        fund_score += 10
+                        analysis_points.append("✅ Strong profitability")
+                    
+                    if not np.isnan(revenue_growth) and revenue_growth > 0.05:
+                        fund_score += 10
+                        analysis_points.append("✅ Revenue growth")
+                    
+                    if not np.isnan(pe_ratio) and pe_ratio < 20:
+                        fund_score += 10
+                        analysis_points.append("✅ Reasonable valuation")
+                    
+                    if not np.isnan(debt_to_equity) and debt_to_equity < 1:
+                        fund_score += 10
+                        analysis_points.append("✅ Low debt levels")
+                    
+                    score += fund_score
+                    
+                    # Prediction factors (20% weight)
+                    max_score += 20
+                    pred_score = 0
+                    
+                    if price_change > 0.1:
+                        pred_score += 10
+                        analysis_points.append("✅ Strong positive prediction")
+                    
+                    if confidence > 0.6:
+                        pred_score += 10
+                        analysis_points.append("✅ High prediction confidence")
+                    
+                    score += pred_score
+                    
+                    # Display score
+                    score_percentage = (score / max_score) * 100
+                    
+                    col1, col2 = st.columns([1, 2])
+                    with col1:
+                        st.metric("Winning Score", f"{score_percentage:.0f}%")
+                        
+                        if score_percentage >= 80:
+                            st.success("🏆 Excellent - Strong winning characteristics")
+                        elif score_percentage >= 60:
+                            st.info("👍 Good - Above average potential")
+                        elif score_percentage >= 40:
+                            st.warning("⚠️ Fair - Mixed signals")
+                        else:
+                            st.error("❌ Poor - Weak characteristics")
+                    
+                    with col2:
+                        st.markdown("**Key Analysis Points:**")
+                        for point in analysis_points[:5]:  # Show top 5 points
+                            st.write(point)
+                    
+                    # Investment Recommendations
+                    st.subheader("💡 Investment Insights")
+                    
+                    if score_percentage >= 70:
+                        st.success("""
+                        **🎯 Strong Buy Candidate**
+                        - This stock shows strong winning characteristics
+                        - Technical and fundamental analysis are positive
+                        - Consider adding to your portfolio with proper position sizing
+                        """)
+                    elif score_percentage >= 50:
+                        st.info("""
+                        **📊 Watch & Wait**
+                        - Mixed signals suggest cautious approach
+                        - Monitor for improvement in weak areas
+                        - Consider small position or wait for better entry
+                        """)
+                    else:
+                        st.warning("""
+                        **⚠️ High Risk**
+                        - Multiple red flags indicate high risk
+                        - Consider avoiding or very small position
+                        - Focus on stocks with better characteristics
+                        """)
+                    
+                    # Risk Factors
+                    st.subheader("⚠️ Risk Factors")
+                    risk_factors = []
+                    
+                    if not np.isnan(current_rsi) and current_rsi > 70:
+                        risk_factors.append("Overbought conditions (RSI > 70)")
+                    
+                    if not np.isnan(volatility) and volatility > 0.4:
+                        risk_factors.append("High volatility")
+                    
+                    if not np.isnan(pe_ratio) and pe_ratio > 25:
+                        risk_factors.append("High P/E ratio")
+                    
+                    if not np.isnan(debt_to_equity) and debt_to_equity > 2:
+                        risk_factors.append("High debt levels")
+                    
+                    if price_change < 0:
+                        risk_factors.append("Negative price prediction")
+                    
+                    if risk_factors:
+                        for risk in risk_factors:
+                            st.write(f"• {risk}")
+                    else:
+                        st.success("✅ No major risk factors identified")
+                    
+                    # Disclaimer
+                    st.subheader("📋 Important Disclaimer")
+                    st.warning("""
+                    **This analysis is for educational purposes only:**
+                    - Predictions are based on historical data and mathematical models
+                    - Past performance does not guarantee future results
+                    - Always conduct your own research and consider consulting a financial advisor
+                    - Market conditions can change rapidly
+                    - Never invest more than you can afford to lose
+                    """)
+                    
+            except Exception as e:
+                st.error(f"Error analyzing {symp}: {str(e)}")
+                st.info("Please check the ticker symbol and try again.")
 
 # =============================
 # Intrinsic Value Calculation
 # =============================
 elif page == "Intrinsic Value":
-    st.header("💎 Intrinsic Value Calculator")
-    st.caption("DCF, EPS Growth, and Dividend Discount (DDM). Uses public data when available; inputs are editable.")
-
-    c1, c2, c3 = st.columns([1.2,1,1])
-    with c1:
-        symv = st.text_input("Ticker", value="AAPL", key="iv_sym")
-    with c2:
-        method = st.selectbox("Method", ["Discounted Cash Flow (DCF)", "EPS Growth Model", "Dividend Discount (DDM)"], key="iv_method")
-    with c3:
-        run_iv = st.button("🧮 Calculate", type="primary")
-    refresh_iv = st.button("🔄 Refresh Data")
-
-    import numpy as np
-    import pandas as pd
-
-    @st.cache_data(ttl=300)
-    def _info_fast(t):
+    st.header("Intrinsic Value Calculator")
+    st.caption("Calculate intrinsic value using different valuation methods")
+    
+    # Method explanations
+    with st.expander("📚 Valuation Method Explanations", expanded=False):
+        st.markdown("""
+        **Discounted Cash Flow (DCF) Method**
+        - **What it is**: Values a company based on its projected future cash flows, discounted to present value
+        - **Best for**: Companies with stable, predictable cash flows (mature companies, utilities, consumer staples)
+        - **How it works**: 
+          - Projects free cash flows for 10 years
+          - Applies a discount rate (cost of capital) to account for time value of money
+          - Adds terminal value for cash flows beyond 10 years
+          - Subtracts debt and adds cash to get equity value
+        - **Key assumptions**: Growth rates, discount rate, terminal growth rate
+        
+        **EPS Growth Model**
+        - **What it is**: Values a company based on projected earnings per share growth
+        - **Best for**: Growth companies with expanding earnings (tech, biotech, emerging markets)
+        - **How it works**:
+          - Projects EPS growth over 10 years based on historical growth
+          - Applies a P/E ratio to future EPS to get future stock price
+          - Discounts future price to present value
+        - **Key assumptions**: EPS growth rate, future P/E ratio, discount rate
+        
+        **Dividend Discount Model (DDM)**
+        - **What it is**: Values a stock based on the present value of expected future dividends
+        - **Best for**: Dividend-paying stocks with stable dividend policies (blue chips, utilities, REITs)
+        - **How it works**:
+          - Uses Gordon Growth Model: Price = Dividend × (1 + Growth Rate) ÷ (Required Return - Growth Rate)
+          - Assumes dividends grow at a constant rate forever
+        - **Key assumptions**: Current dividend, dividend growth rate, required rate of return
+        """)
+    
+    # Input section
+    ticker = st.text_input("Stock Ticker", value="AAPL", key="iv_ticker")
+    method = st.selectbox(
+        "Valuation Method",
+        [
+            "Discounted Cash Flow (DCF) Method",
+            "EPS Growth Model", 
+            "Dividend Discount Model (for dividend stocks)"
+        ],
+        key="iv_method",
+        help="DCF: For stable cash flow companies. EPS Growth: For growing companies. DDM: For dividend-paying stocks."
+    )
+    
+    if ticker and method:
+        # Fetch stock data
         try:
-            tk = yf.Ticker(t)
-            fi = getattr(tk, "fast_info", None)
-            return tk, fi
-        except Exception:
-            return yf.Ticker(t), None
-
-    @st.cache_data(ttl=300)
-    def _fundamentals(t):
-        tk = yf.Ticker(t)
-        try:
-            cf = tk.cashflow or pd.DataFrame()
-        except Exception:
-            cf = pd.DataFrame()
-        try:
-            income = tk.financials or pd.DataFrame()
-        except Exception:
-            income = pd.DataFrame()
-        try:
-            div = tk.dividends or pd.Series(dtype=float)
-        except Exception:
-            div = pd.Series(dtype=float)
-        return cf, income, div
-
-    if (run_iv or refresh_iv) and symv.strip():
-        ticker = symv.strip().upper()
-        with st.spinner("Fetching fundamentals & valuing..."):
-            tk, fi = _info_fast(ticker)
-            cf, income, dividends = _fundamentals(ticker)
-
-            last = None
-            try:
-                if fi and getattr(fi, "last_price", None) is not None:
-                    last = float(fi.last_price)
-            except Exception:
-                pass
-            if last is None:
+            stock = yf.Ticker(ticker.upper().strip())
+            info = stock.info
+            financials = stock.financials
+            balance_sheet = stock.balance_sheet
+            
+            if method == "Discounted Cash Flow (DCF) Method":
+                st.subheader("Discounted Cash Flow (DCF) Analysis")
+                st.info("💡 **DCF is best for mature companies with stable cash flows. Growth companies may have unreliable projections.**")
+                
+                # Get required data
                 try:
-                    hist = fetch_price_history(ticker, period="6mo", interval="1d")
-                    last = float(hist["Close"].iloc[-1])
-                except Exception:
-                    last = float("nan")
-
-            # Common inputs
-            colA, colB, colC = st.columns(3)
-            with colA:
-                discount = st.number_input("Discount Rate (WACC) %", 5.0, 20.0, 10.0, 0.5) / 100.0
-            with colB:
-                term_growth = st.number_input("Terminal Growth %", 0.0, 5.0, 2.0, 0.25) / 100.0
-            with colC:
-                shares_out = st.number_input("Shares Outstanding (B)", 0.0, 100.0, 1.0, 0.1) * 1_000_000_000
-
-            st.metric("Last Price", f"${last:,.2f}")
-
-            val = None
-            details = {}
-
-            if method == "Discounted Cash Flow (DCF)":
-                # Approximate FCF from cashflow statement: 'Free Cash Flow' if present; else OperatingCF - Capex
-                try:
-                    fcf_series = None
-                    if not cf.empty:
-                        if "Free Cash Flow" in cf.index:
-                            fcf_series = cf.loc["Free Cash Flow"].dropna()
-                        elif "Total Cash From Operating Activities" in cf.index and "Capital Expenditures" in cf.index:
-                            fcf_series = (cf.loc["Total Cash From Operating Activities"] - cf.loc["Capital Expenditures"]).dropna()
-                    if fcf_series is not None and len(fcf_series) >= 3:
-                        fcf0 = float(fcf_series.iloc[0])
-                        g = st.number_input("FCF Growth % (Years 1‑5)", -20.0, 30.0, 8.0, 0.5) / 100.0
-                        fcf = [fcf0 * ((1+g)**i) for i in range(1,6)]
-                        # fade growth years 6‑10
-                        g2 = g/2.0
-                        fcf += [fcf[-1] * ((1+g2)**i) for i in range(1,6)]
-                        years = list(range(1,11))
-                        disc = [(1+discount)**y for y in years]
-                        pv = sum(f/d for f,d in zip(fcf, disc))
-                        tv = (fcf[-1] * (1+term_growth)) / (discount - term_growth) if discount>term_growth else float("nan")
-                        pv_tv = tv / ((1+discount)**10) if tv==tv else float("nan")
-                        equity = pv + pv_tv
-                        val = equity / shares_out if shares_out>0 else float("nan")
-                        details = {"FCF0": fcf0, "PV 1‑10": pv, "Terminal Value": tv, "PV(TV)": pv_tv, "Equity (B)": equity/1e9}
+                    # Free Cash Flow data
+                    fcf_data = stock.cashflow
+                    if fcf_data is not None and not fcf_data.empty and 'Free Cash Flow' in fcf_data.index:
+                        fcf_series = fcf_data.loc['Free Cash Flow'].dropna()
+                        if len(fcf_series) >= 3:
+                            # Calculate average FCF growth rate
+                            fcf_values = fcf_series.values[:3]  # Last 3 years
+                            fcf_growth_rate = ((fcf_values[0] / fcf_values[-1]) ** (1/2)) - 1
+                            
+                            # Terminal growth rate (conservative)
+                            terminal_growth = min(fcf_growth_rate * 0.5, 0.03)  # Max 3%
+                            
+                            # Discount rate (WACC approximation)
+                            risk_free = st.session_state.get("risk_free", RISK_FREE_DEFAULT)
+                            beta = info.get('beta', 1.0)
+                            market_risk_premium = 0.06  # 6% market risk premium
+                            cost_of_equity = risk_free + (beta * market_risk_premium)
+                            discount_rate = cost_of_equity
+                            
+                            # Current FCF
+                            current_fcf = fcf_values[0]
+                            
+                            # DCF calculation
+                            years = 10
+                            present_value = 0
+                            
+                            for year in range(1, years + 1):
+                                if year <= 5:
+                                    # First 5 years: use calculated growth rate
+                                    future_fcf = current_fcf * ((1 + fcf_growth_rate) ** year)
+                                else:
+                                    # Years 6-10: gradually transition to terminal growth
+                                    transition_factor = (year - 5) / 5
+                                    growth_rate = fcf_growth_rate * (1 - transition_factor) + terminal_growth * transition_factor
+                                    future_fcf = current_fcf * ((1 + growth_rate) ** year)
+                                
+                                present_value += future_fcf / ((1 + discount_rate) ** year)
+                            
+                            # Terminal value
+                            terminal_fcf = current_fcf * ((1 + terminal_growth) ** years)
+                            terminal_value = terminal_fcf / (discount_rate - terminal_growth)
+                            terminal_pv = terminal_value / ((1 + discount_rate) ** years)
+                            
+                            # Total enterprise value
+                            enterprise_value = present_value + terminal_pv
+                            
+                            # Get debt and cash
+                            total_debt = balance_sheet.loc['Total Debt'].iloc[0] if 'Total Debt' in balance_sheet.index else 0
+                            total_cash = balance_sheet.loc['Cash'].iloc[0] if 'Cash' in balance_sheet.index else 0
+                            
+                            # Equity value
+                            equity_value = enterprise_value - total_debt + total_cash
+                            
+                            # Shares outstanding
+                            shares_outstanding = info.get('sharesOutstanding', 1)
+                            intrinsic_value_per_share = equity_value / shares_outstanding
+                            
+                            # Display results
+                            col1, col2, col3 = st.columns(3)
+                            with col1:
+                                st.metric("Current FCF", f"${current_fcf:,.0f}")
+                                st.metric("FCF Growth Rate", f"{fcf_growth_rate:.1%}")
+                                st.metric("Terminal Growth", f"{terminal_growth:.1%}")
+                            
+                            with col2:
+                                st.metric("Discount Rate", f"{discount_rate:.1%}")
+                                st.metric("Enterprise Value", f"${enterprise_value:,.0f}")
+                                st.metric("Equity Value", f"${equity_value:,.0f}")
+                            
+                            with col3:
+                                current_price = fetch_live_price(ticker)
+                                if not np.isnan(current_price):
+                                    st.metric("Current Price", f"${current_price:.2f}")
+                                    st.metric("Intrinsic Value", f"${intrinsic_value_per_share:.2f}")
+                                    margin_of_safety = (intrinsic_value_per_share - current_price) / intrinsic_value_per_share
+                                    st.metric("Margin of Safety", f"{margin_of_safety:.1%}")
+                                
+                            # Assumptions table
+                            st.subheader("Key Assumptions")
+                            assumptions = pd.DataFrame({
+                                'Parameter': ['FCF Growth Rate (5 years)', 'Terminal Growth Rate', 'Discount Rate', 'Forecast Period'],
+                                'Value': [f"{fcf_growth_rate:.1%}", f"{terminal_growth:.1%}", f"{discount_rate:.1%}", f"{years} years"]
+                            })
+                            st.dataframe(assumptions, use_container_width=True)
+                            
+                        else:
+                            st.warning("Insufficient FCF data for DCF analysis")
                     else:
-                        st.info("⚠️ Not enough FCF data; input a manual FCF instead.")
-                        fcf0 = st.number_input("Manual FCF (B)", 0.0, 200.0, 10.0, 0.5) * 1_000_000_000
-                        g = st.number_input("FCF Growth % (Years 1‑5)", -20.0, 30.0, 8.0, 0.5) / 100.0
-                        f1 = [fcf0 * ((1+g)**i) for i in range(1,6)]
-                        g2 = g/2.0
-                        f2 = [f1[-1] * ((1+g2)**i) for i in range(1,6)]
-                        fcf = f1 + f2
-                        years = list(range(1,11))
-                        disc = [(1+discount)**y for y in years]
-                        pv = sum(f/d for f,d in zip(fcf, disc))
-                        tv = (fcf[-1] * (1+term_growth)) / (discount - term_growth) if discount>term_growth else float("nan")
-                        pv_tv = tv / ((1+discount)**10) if tv==tv else float("nan")
-                        equity = pv + pv_tv
-                        val = equity / shares_out if shares_out>0 else float("nan")
-                        details = {"FCF0": fcf0, "PV 1‑10": pv, "Terminal Value": tv, "PV(TV)": pv_tv, "Equity (B)": equity/1e9}
+                        st.warning("Free Cash Flow data not available")
+                        
                 except Exception as e:
-                    st.error(f"DCF error: {e}")
-
+                    st.error(f"Error in DCF calculation: {str(e)}")
+            
             elif method == "EPS Growth Model":
-                # Use trailing/forward EPS if available
+                st.subheader("EPS Growth Model Analysis")
+                st.info("💡 **EPS Growth Model is best for growth companies. Be cautious with cyclical or volatile earnings.**")
+                
                 try:
-                    eps_t = None
-                    pe_now = None
-                    try:
-                        info = tk.info
-                        if isinstance(info, dict):
-                            eps_t = info.get("trailingEps", None)
-                            pe_now = info.get("trailingPE", None)
-                    except Exception:
-                        pass
-                    eps0 = st.number_input("Starting EPS", 0.0, 200.0, float(eps_t or 6.0), 0.1)
-                    g = st.number_input("EPS Growth % (10y)", -20.0, 40.0, 10.0, 0.5) / 100.0
-                    pe_term = st.number_input("Terminal P/E", 5.0, 40.0, float(pe_now or 20.0), 0.5)
-                    eps10 = eps0 * ((1+g)**10)
-                    price10 = eps10 * pe_term
-                    pv = price10 / ((1+discount)**10)
-                    val = pv
-                    details = {"EPS0": eps0, "EPS10": eps10, "Term P/E": pe_term, "PV Price": pv}
-                except Exception as e:
-                    st.error(f"EPS model error: {e}")
-
-            else:  # Dividend Discount (DDM) Gordon
-                try:
-                    div0 = 0.0
-                    try:
-                        if not dividends.empty:
-                            div0 = float(dividends.iloc[-1]) * 4  # approx yearly from last quarterly
-                    except Exception:
-                        pass
-                    div_ann = st.number_input("Annual Dividend ($)", 0.0, 50.0, float(div0 or 1.0), 0.05)
-                    g = st.number_input("Dividend Growth %", 0.0, 10.0, 3.0, 0.25) / 100.0
-                    if discount <= g:
-                        st.warning("Discount must exceed growth for DDM.")
-                        val = float("nan")
+                    # Get EPS data
+                    earnings = stock.earnings
+                    if earnings is not None and not earnings.empty and len(earnings) >= 3:
+                        # Check if 'Earnings' column exists
+                        if 'Earnings' not in earnings.columns:
+                            st.error("Earnings data not available in expected format")
+                            st.stop()
+                        
+                        # Get EPS values and validate
+                        eps_values = earnings['Earnings'].dropna().values[:3]  # Last 3 years
+                        if len(eps_values) < 3:
+                            st.warning("Insufficient earnings data (need at least 3 years)")
+                            st.stop()
+                        
+                        # Check for negative or zero values
+                        if eps_values[0] <= 0 or eps_values[-1] <= 0:
+                            st.warning("Cannot calculate growth rate with negative or zero earnings")
+                            st.stop()
+                        
+                        # Calculate EPS growth rate
+                        eps_growth_rate = ((eps_values[0] / eps_values[-1]) ** (1/2)) - 1
+                        
+                        # Current EPS
+                        current_eps = eps_values[0]
+                        
+                        # P/E ratio assumption (industry average or historical)
+                        pe_ratio = info.get('trailingPE', 15.0)  # Default to 15 if not available
+                        
+                        # Future EPS projection (10 years)
+                        years = 10
+                        future_eps = current_eps * ((1 + eps_growth_rate) ** years)
+                        
+                        # Intrinsic value
+                        intrinsic_value = future_eps * pe_ratio
+                        
+                        # Discount to present value
+                        risk_free = st.session_state.get("risk_free", RISK_FREE_DEFAULT)
+                        discount_rate = risk_free + 0.04  # Risk premium
+                        present_value = intrinsic_value / ((1 + discount_rate) ** years)
+                        
+                        # Display results
+                        col1, col2, col3 = st.columns(3)
+                        with col1:
+                            st.metric("Current EPS", f"${current_eps:.2f}")
+                            st.metric("EPS Growth Rate", f"{eps_growth_rate:.1%}")
+                            st.metric("P/E Ratio", f"{pe_ratio:.1f}")
+                        
+                        with col2:
+                            st.metric("Future EPS (10y)", f"${future_eps:.2f}")
+                            st.metric("Future Value", f"${intrinsic_value:.2f}")
+                            st.metric("Discount Rate", f"{discount_rate:.1%}")
+                        
+                        with col3:
+                            current_price = fetch_live_price(ticker)
+                            if not np.isnan(current_price):
+                                st.metric("Current Price", f"${current_price:.2f}")
+                                st.metric("Intrinsic Value", f"${present_value:.2f}")
+                                margin_of_safety = (present_value - current_price) / present_value
+                                st.metric("Margin of Safety", f"{margin_of_safety:.1%}")
+                        
+                        # EPS projection chart
+                        years_range = list(range(years + 1))
+                        eps_projections = [current_eps * ((1 + eps_growth_rate) ** year) for year in years_range]
+                        
+                        fig = go.Figure()
+                        fig.add_trace(go.Scatter(x=years_range, y=eps_projections, mode='lines+markers', name='Projected EPS'))
+                        fig.update_layout(
+                            title=f"{ticker.upper()} EPS Projection ({years} years)",
+                            xaxis_title="Years",
+                            yaxis_title="EPS ($)",
+                            height=400
+                        )
+                        st.plotly_chart(fig, use_container_width=True)
+                        
                     else:
-                        val = div_ann * (1+g) / (discount - g)
-                        details = {"Div": div_ann, "g": g, "r": discount}
+                        st.warning("Insufficient earnings data for EPS growth analysis")
+                        
                 except Exception as e:
-                    st.error(f"DDM error: {e}")
-
-            if val is not None:
-                col1, col2 = st.columns([1,1])
-                with col1:
-                    st.metric("Intrinsic Value / Share", f"${val:,.2f}")
-                with col2:
-                    delta = (val/last - 1.0) if last==last and last>0 else float("nan")
-                    st.metric("Upside vs Price", f"{delta*100:,.1f}%")
-
-                # Show assumptions
-                st.subheader("Assumptions & Outputs")
-                df_out = pd.DataFrame({"Metric": list(details.keys()), "Value": list(details.values())})
-                st.dataframe(df_out, use_container_width=True, hide_index=True)
-
-                # Links
-                def _yahoo_sym(t):  # Yahoo uses '-' for classes
-                    return t.replace('.', '-')
-                def _finviz_sym(t): # Finviz uses '.' for classes
-                    return t.replace('-', '.')
-                st.link_button("Yahoo Finance", f"https://finance.yahoo.com/quote/{_yahoo_sym(ticker)}")
-                st.link_button("Finviz", f"https://finviz.com/quote.ashx?t={_finviz_sym(ticker)}")
+                    st.error(f"Error in EPS growth calculation: {str(e)}")
+            
+            elif method == "Dividend Discount Model (for dividend stocks)":
+                st.subheader("Dividend Discount Model (DDM) Analysis")
+                st.info("💡 **DDM is best for dividend-paying stocks. Non-dividend stocks will show no results.**")
+                
+                try:
+                    # Get dividend data
+                    dividends = stock.dividends
+                    if dividends is not None and not dividends.empty and len(dividends) >= 3:
+                        # Get dividend values and validate
+                        div_values = dividends.dropna().values[:3]  # Last 3 years
+                        if len(div_values) < 3:
+                            st.warning("Insufficient dividend data (need at least 3 years)")
+                            st.stop()
+                        
+                        # Check for negative or zero values
+                        if div_values[0] <= 0 or div_values[-1] <= 0:
+                            st.warning("Cannot calculate growth rate with negative or zero dividends")
+                            st.stop()
+                        
+                        # Calculate dividend growth rate
+                        div_growth_rate = ((div_values[0] / div_values[-1]) ** (1/2)) - 1
+                        
+                        # Current dividend
+                        current_dividend = div_values[0]
+                        
+                        # Required rate of return
+                        risk_free = st.session_state.get("risk_free", RISK_FREE_DEFAULT)
+                        beta = info.get('beta', 1.0)
+                        market_risk_premium = 0.06
+                        required_return = risk_free + (beta * market_risk_premium)
+                        
+                        # DDM calculation (Gordon Growth Model)
+                        if div_growth_rate < required_return:
+                            intrinsic_value = current_dividend * (1 + div_growth_rate) / (required_return - div_growth_rate)
+                        else:
+                            st.warning("Dividend growth rate exceeds required return. Model may not be appropriate.")
+                            intrinsic_value = current_dividend / required_return
+                        
+                        # Display results
+                        col1, col2, col3 = st.columns(3)
+                        with col1:
+                            st.metric("Current Dividend", f"${current_dividend:.2f}")
+                            st.metric("Dividend Growth Rate", f"{div_growth_rate:.1%}")
+                            st.metric("Required Return", f"{required_return:.1%}")
+                        
+                        with col2:
+                            st.metric("Intrinsic Value", f"${intrinsic_value:.2f}")
+                            dividend_yield = current_dividend / intrinsic_value
+                            st.metric("Implied Dividend Yield", f"{dividend_yield:.1%}")
+                        
+                        with col3:
+                            current_price = fetch_live_price(ticker)
+                            if not np.isnan(current_price):
+                                st.metric("Current Price", f"${current_price:.2f}")
+                                actual_yield = current_dividend / current_price
+                                st.metric("Current Dividend Yield", f"{actual_yield:.1%}")
+                                margin_of_safety = (intrinsic_value - current_price) / intrinsic_value
+                                st.metric("Margin of Safety", f"{margin_of_safety:.1%}")
+                        
+                        # Dividend growth chart
+                        years_range = list(range(11))  # 10 years
+                        div_projections = [current_dividend * ((1 + div_growth_rate) ** year) for year in years_range]
+                        
+                        fig = go.Figure()
+                        fig.add_trace(go.Scatter(x=years_range, y=div_projections, mode='lines+markers', name='Projected Dividend'))
+                        fig.update_layout(
+                            title=f"{ticker.upper()} Dividend Projection (10 years)",
+                            xaxis_title="Years",
+                            yaxis_title="Dividend per Share ($)",
+                            height=400
+                        )
+                        st.plotly_chart(fig, use_container_width=True)
+                        
+                    else:
+                        st.warning("Insufficient dividend data for DDM analysis")
+                        
+                except Exception as e:
+                    st.error(f"Error in DDM calculation: {str(e)}")
+                    
+        except Exception as e:
+            st.error(f"Error fetching data for {ticker}: {str(e)}")
 
 # =============================
 # Daily Scanner
